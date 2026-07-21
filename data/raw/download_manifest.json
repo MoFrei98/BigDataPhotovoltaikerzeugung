@@ -1,0 +1,53 @@
+{
+  "manifest_created_at_utc": "2026-07-21T12:01:28.205882+00:00",
+  "datasets": {
+    "co-emissions-per-capita": [
+      {
+        "file": "data/raw/co-emissions-per-capita.csv",
+        "url": "https://ourworldindata.org/grapher/co-emissions-per-capita.csv?v=1&csvType=full&useColumnShortNames=true",
+        "bytes": 801498,
+        "sha256": "b82948714a8126fc1eb96dc6f4ad8869a4927f17f8e560d4ce60239075156994",
+        "retrieved_now": false
+      },
+      {
+        "file": "data/raw/co-emissions-per-capita.metadata.json",
+        "url": "https://ourworldindata.org/grapher/co-emissions-per-capita.metadata.json?v=1&csvType=full&useColumnShortNames=true",
+        "bytes": 4220,
+        "sha256": "f4c8c22d8d69291c578a3ff679786d48c6f3e8408920c939d2d063aa69c4cabf",
+        "retrieved_now": false
+      }
+    ],
+    "annual-co2-emissions-per-country": [
+      {
+        "file": "data/raw/annual-co2-emissions-per-country.csv",
+        "url": "https://ourworldindata.org/grapher/annual-co2-emissions-per-country.csv?v=1&csvType=full&useColumnShortNames=true",
+        "bytes": 833069,
+        "sha256": "12457dc133224a3fda74ebbc8a0e14d45ea1c2cbde940553355ae6afd7460880",
+        "retrieved_now": false
+      },
+      {
+        "file": "data/raw/annual-co2-emissions-per-country.metadata.json",
+        "url": "https://ourworldindata.org/grapher/annual-co2-emissions-per-country.metadata.json?v=1&csvType=full&useColumnShortNames=true",
+        "bytes": 2448,
+        "sha256": "b5df1b269f78fcde563a5f13a621ab4427bfbf899ca87ce0208a2e6870cd66e3",
+        "retrieved_now": false
+      }
+    ],
+    "gdp-worldbank-constant-usd": [
+      {
+        "file": "data/raw/gdp-worldbank-constant-usd.csv",
+        "url": "https://ourworldindata.org/grapher/gdp-worldbank-constant-usd.csv?v=1&csvType=full&useColumnShortNames=true",
+        "bytes": 395147,
+        "sha256": "594ba8984050f71b7a4e5281787a489ccbda2f251ecdb416ed05a495486d6591",
+        "retrieved_now": false
+      },
+      {
+        "file": "data/raw/gdp-worldbank-constant-usd.metadata.json",
+        "url": "https://ourworldindata.org/grapher/gdp-worldbank-constant-usd.metadata.json?v=1&csvType=full&useColumnShortNames=true",
+        "bytes": 2758,
+        "sha256": "83c0797cefee0a4a671953fff6dfa82d4c42a8ac0054c3714c76d511abcae336",
+        "retrieved_now": false
+      }
+    ]
+  }
+}

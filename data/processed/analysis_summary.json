@@ -1,0 +1,18 @@
+{
+  "start_year": 2005,
+  "end_year": 2024,
+  "country_count": 27,
+  "decoupled_count": 26,
+  "decoupled_share": 0.9629629629629629,
+  "trend_decoupled_count": 26,
+  "thesis_supported": true,
+  "germany_gdp_change_pct": 23.76942245488387,
+  "germany_co2_change_pct": -34.0555329910051,
+  "best_forecast_model": "Drift",
+  "forecast_2030_mt": 487.1762176470588,
+  "forecast_2030_lower_80_mt": 363.3811972661065,
+  "forecast_2030_upper_80_mt": 543.021848308713,
+  "forecast_2030_lower_95_mt": 358.13906755182074,
+  "forecast_2030_upper_95_mt": 571.9851674177356,
+  "forecast_rmse_mt": 56.606872481900865
+}
