@@ -1,68 +1,80 @@
-# Entkopplung von Wirtschaftswachstum und CO₂-Emissionen in Europa
+# Hitze und städtische Luftqualität
 
-Dieses Projekt untersucht, ob seit 2005 in der Mehrheit der heutigen EU-27-
-Staaten eine **absolute Entkopplung** stattgefunden hat: reales Gesamt-BIP steigt,
-während territoriale CO₂-Gesamtemissionen sinken. Anschließend werden die
-deutschen CO₂-Emissionen bis 2030 mit transparenten Zeitreihen-Baselines
-prognostiziert.
+Dieses Projekt untersucht für Potsdam (2016–2025), ob hohe Temperaturen die
+Luftqualität insgesamt verschlechtern oder vor allem den dominierenden
+Luftschadstoff verändern. Stündliche Messwerte von Umweltbundesamt und
+Deutschem Wetterdienst werden über Zeit und räumlich benachbarte Stationen
+verbunden.
 
 ## Forschungsfrage und These
 
-> Für mehr als 50 % der EU-27-Staaten mit vollständigen Daten gilt zwischen
-> 2005 und dem letzten gemeinsamen verfügbaren Jahr: Das reale Gesamt-BIP ist
-> gestiegen und die territorialen CO₂-Emissionen sind gesunken.
+> Verschlechtert Hitze die Luftqualität insgesamt, oder verändert sie vor allem
+> die Zusammensetzung der Luftschadstoffe?
 
-Die primäre Entscheidung basiert auf dem Vergleich der Endpunkte. Eine
-log-lineare Trendanalyse über den gesamten Zeitraum dient als Robustheitscheck.
+**These:** Hohe Temperaturen erhöhen insbesondere die Ozonbelastung, während
+die Stickstoffdioxidbelastung gleichzeitig sinken kann. Dadurch verändert sich
+an heißen Tagen der dominierende Luftschadstoff.
+
+Die Auswertung bestätigt den starken Ozonanstieg. Für NO₂ sinkt im gewählten
+Datensatz zwar der Anteil als dominierender Schadstoff, nicht aber die absolute
+Tageskonzentration. Die These wird deshalb nur teilweise unterstützt.
+
+## Prognoseziel
+
+Ein Mehrklassenmodell prognostiziert, welcher UBA-LQI-Schadstoff am Folgetag
+dominiert: O₃, NO₂, PM₁₀, PM₂,₅ oder SO₂. Das Notebook vergleicht Baseline,
+logistische Regression und Random Forest auf einem zeitlich getrennten Test
+(2024–2025). Eine interaktive Slider-Oberfläche erlaubt Wetter- und
+Belastungsszenarien.
+
+## Daten
+
+- UBA-Luftdaten-API v4: Station DEBB021 Potsdam-Zentrum
+- DWD Climate Data Center: Station 03987 Potsdam
+- Zeitraum: 2016–2025
+- Wettermerkmale: Temperatur, Feuchte, Wind, Niederschlag, Sonnenscheindauer,
+  Global- und Diffusstrahlung
+- Verbindungslogik: UBA-Zeit von MEZ/MESZ nach UTC, DWD-Zeit in UTC; räumliche
+  Stationsdistanz rund 2,3 km
 
 ## Projektstruktur
 
 ```text
-notebooks/     ausgeführter Jupyter-Bericht
-data/raw/      unveränderte OWID-Daten und Metadaten
-data/processed/ abgeleitete Tabellen
-figures/       exportierte Abbildungen
-presentation/  kurze Ergebnispräsentation
-scripts/       reproduzierbarer Download und Artefakt-Erstellung
-archive/       unverändertes altes Iris-/ML-Projekt
+notebooks/      ausgeführtes Jupyter-Notebook mit Slider-Prognose
+data/raw/       unveränderte UBA-CSV- und DWD-ZIP-Dateien plus Manifest
+data/processed/ Tagespanel, Modellvergleich, Merkmalswichtigkeit, Ergebnis-JSON
+figures/        reproduzierbare Abbildungen
+models/         gespeichertes Prognosemodell
+presentation/   kurze Ergebnispräsentation
+scripts/        Download- und Notebook-Erzeugung
+archive/        frühere Projektstände
 ```
 
-## Installation und Ausführung
+## Reproduzieren
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python scripts/download_data.py
-jupyter lab
+python scripts/create_notebook.py
+jupyter lab notebooks/hitze_luftqualitaet_und_prognose.ipynb
 ```
 
-Danach `notebooks/co2_entkopplung_und_prognose.ipynb` öffnen und alle Zellen
-von oben nach unten ausführen. Die Rohdaten werden nur heruntergeladen, wenn
-lokale Kopien fehlen. Mit `python scripts/download_data.py --refresh` kann ein
-neuer Datenstand bewusst eingefroren werden.
+Danach alle Zellen von oben nach unten ausführen. Mit
+`python scripts/download_data.py --refresh` werden die amtlichen Rohdaten
+bewusst neu eingefroren. Das Download-Manifest dokumentiert URLs, Abrufzeit,
+Dateigröße und SHA-256-Prüfsumme.
 
-## Definitionen
+## Methodische Grenzen
 
-- **Territorial:** Emissionen werden dem Land zugerechnet, in dem sie entstehen.
-- **CO₂:** fossile Brennstoffe und industrielle Prozesse, ohne Landnutzungsänderungen.
-- **Reales BIP:** inflationsbereinigtes Gesamt-BIP, nicht BIP pro Kopf.
-- **Absolute Entkopplung:** BIP-Veränderung > 0 % und CO₂-Veränderung < 0 %.
-
-## Ergebnisse
-
-Die belastbaren Kennzahlen stehen im ausgeführten Notebook und in der
-Präsentation. Datenstand, gemeinsames Endjahr, Modellgüte und Unsicherheiten
-werden dort automatisch aus den eingefrorenen Quelldateien berechnet.
-
-## Datenquellen
-
-- Global Carbon Budget (2025), aufbereitet von Our World in Data
-- World Development Indicators, aufbereitet von Our World in Data
-- Vollständige URLs, Metadaten und Prüfsummen: `data/raw/download_manifest.json`
+Die Fallstudie umfasst einen urbanen Hintergrundstandort und zeigt
+Zusammenhänge, keine Kausalität. Verkehr, Ferntransport und Ozonvorläufer werden
+nicht direkt modelliert. Historisch gemessenes Folgetagswetter ersetzt beim
+Training eine reale Wetterprognose; die ausgewiesene Modellgüte ist deshalb für
+echte Prognosefehler eher optimistisch. Das Modell ist keine amtliche Warnung.
 
 ## KI-Nutzung
 
-Die Verwendung generativer KI wird transparent in `KI_NUTZUNG.md` dokumentiert.
-Alle Definitionen, Datenquellen, Berechnungen, Visualisierungen und Aussagen
-müssen vor der Abgabe fachlich durch den Verfasser geprüft werden.
+Der Einsatz generativer KI und die menschlichen Kontrollschritte sind in
+[`KI_NUTZUNG.md`](KI_NUTZUNG.md) dokumentiert.

@@ -1,53 +1,129 @@
 {
-  "manifest_created_at_utc": "2026-07-21T12:01:28.205882+00:00",
-  "datasets": {
-    "co-emissions-per-capita": [
-      {
-        "file": "data/raw/co-emissions-per-capita.csv",
-        "url": "https://ourworldindata.org/grapher/co-emissions-per-capita.csv?v=1&csvType=full&useColumnShortNames=true",
-        "bytes": 801498,
-        "sha256": "b82948714a8126fc1eb96dc6f4ad8869a4927f17f8e560d4ce60239075156994",
-        "retrieved_now": false
-      },
-      {
-        "file": "data/raw/co-emissions-per-capita.metadata.json",
-        "url": "https://ourworldindata.org/grapher/co-emissions-per-capita.metadata.json?v=1&csvType=full&useColumnShortNames=true",
-        "bytes": 4220,
-        "sha256": "f4c8c22d8d69291c578a3ff679786d48c6f3e8408920c939d2d063aa69c4cabf",
-        "retrieved_now": false
-      }
-    ],
-    "annual-co2-emissions-per-country": [
-      {
-        "file": "data/raw/annual-co2-emissions-per-country.csv",
-        "url": "https://ourworldindata.org/grapher/annual-co2-emissions-per-country.csv?v=1&csvType=full&useColumnShortNames=true",
-        "bytes": 833069,
-        "sha256": "12457dc133224a3fda74ebbc8a0e14d45ea1c2cbde940553355ae6afd7460880",
-        "retrieved_now": false
-      },
-      {
-        "file": "data/raw/annual-co2-emissions-per-country.metadata.json",
-        "url": "https://ourworldindata.org/grapher/annual-co2-emissions-per-country.metadata.json?v=1&csvType=full&useColumnShortNames=true",
-        "bytes": 2448,
-        "sha256": "b5df1b269f78fcde563a5f13a621ab4427bfbf899ca87ce0208a2e6870cd66e3",
-        "retrieved_now": false
-      }
-    ],
-    "gdp-worldbank-constant-usd": [
-      {
-        "file": "data/raw/gdp-worldbank-constant-usd.csv",
-        "url": "https://ourworldindata.org/grapher/gdp-worldbank-constant-usd.csv?v=1&csvType=full&useColumnShortNames=true",
-        "bytes": 395147,
-        "sha256": "594ba8984050f71b7a4e5281787a489ccbda2f251ecdb416ed05a495486d6591",
-        "retrieved_now": false
-      },
-      {
-        "file": "data/raw/gdp-worldbank-constant-usd.metadata.json",
-        "url": "https://ourworldindata.org/grapher/gdp-worldbank-constant-usd.metadata.json?v=1&csvType=full&useColumnShortNames=true",
-        "bytes": 2758,
-        "sha256": "83c0797cefee0a4a671953fff6dfa82d4c42a8ac0054c3714c76d511abcae336",
-        "retrieved_now": false
-      }
-    ]
-  }
+  "manifest_created_at_utc": "2026-07-21T14:30:46.731868+00:00",
+  "analysis_period": {
+    "start": 2016,
+    "end": 2025
+  },
+  "stations": {
+    "air_quality": {
+      "id": "DEBB021",
+      "name": "Potsdam-Zentrum",
+      "type": "urban background",
+      "latitude": 52.401956,
+      "longitude": 13.063989
+    },
+    "weather": {
+      "id": "03987",
+      "name": "Potsdam",
+      "latitude": 52.3812,
+      "longitude": 13.0622
+    }
+  },
+  "files": [
+    {
+      "file": "data/raw/uba_airquality_DEBB021_2016.csv",
+      "url": "https://luftdaten.umweltbundesamt.de/api-proxy/airquality/csv?date_from=2016-01-01&date_to=2016-12-31&time_from=1&time_to=24&station=DEBB021",
+      "bytes": 430682,
+      "sha256": "aed6507fdba6742ec628916d8ba56266be668ead8873fe840b715201507af76f",
+      "retrieved_now": true
+    },
+    {
+      "file": "data/raw/uba_airquality_DEBB021_2017.csv",
+      "url": "https://luftdaten.umweltbundesamt.de/api-proxy/airquality/csv?date_from=2017-01-01&date_to=2017-12-31&time_from=1&time_to=24&station=DEBB021",
+      "bytes": 426747,
+      "sha256": "920a910813ba66dcdb1245170e31639d7801bb72406e3f049ddcd0b0dd7dda2d",
+      "retrieved_now": true
+    },
+    {
+      "file": "data/raw/uba_airquality_DEBB021_2018.csv",
+      "url": "https://luftdaten.umweltbundesamt.de/api-proxy/airquality/csv?date_from=2018-01-01&date_to=2018-12-31&time_from=1&time_to=24&station=DEBB021",
+      "bytes": 430832,
+      "sha256": "408961f7960c624e6e0cdb4fc84d037a8fdc164f822299d514588f63c46a5286",
+      "retrieved_now": true
+    },
+    {
+      "file": "data/raw/uba_airquality_DEBB021_2019.csv",
+      "url": "https://luftdaten.umweltbundesamt.de/api-proxy/airquality/csv?date_from=2019-01-01&date_to=2019-12-31&time_from=1&time_to=24&station=DEBB021",
+      "bytes": 425371,
+      "sha256": "3cb1e660a22dfc979febf90406980ae9faf8604bf3beaf6123bbc76dbd202c82",
+      "retrieved_now": true
+    },
+    {
+      "file": "data/raw/uba_airquality_DEBB021_2020.csv",
+      "url": "https://luftdaten.umweltbundesamt.de/api-proxy/airquality/csv?date_from=2020-01-01&date_to=2020-12-31&time_from=1&time_to=24&station=DEBB021",
+      "bytes": 423311,
+      "sha256": "e74ca3652575859022d5b29f959e44beee216a4b76067500e6d91bb5dbc14fd2",
+      "retrieved_now": true
+    },
+    {
+      "file": "data/raw/uba_airquality_DEBB021_2021.csv",
+      "url": "https://luftdaten.umweltbundesamt.de/api-proxy/airquality/csv?date_from=2021-01-01&date_to=2021-12-31&time_from=1&time_to=24&station=DEBB021",
+      "bytes": 426578,
+      "sha256": "26bfd423ed67f205d1958aa9af5f92447a71d3740658fc013c84196c73f5fa96",
+      "retrieved_now": true
+    },
+    {
+      "file": "data/raw/uba_airquality_DEBB021_2022.csv",
+      "url": "https://luftdaten.umweltbundesamt.de/api-proxy/airquality/csv?date_from=2022-01-01&date_to=2022-12-31&time_from=1&time_to=24&station=DEBB021",
+      "bytes": 433960,
+      "sha256": "1cf3f1338245bc058ce2aa058382a0be18d46b1621deeb5276e61181312df271",
+      "retrieved_now": true
+    },
+    {
+      "file": "data/raw/uba_airquality_DEBB021_2023.csv",
+      "url": "https://luftdaten.umweltbundesamt.de/api-proxy/airquality/csv?date_from=2023-01-01&date_to=2023-12-31&time_from=1&time_to=24&station=DEBB021",
+      "bytes": 423113,
+      "sha256": "1649f9cd5856ceb68cda7427c0cf06e7e53940ed00e85dd7d0019d266922f470",
+      "retrieved_now": true
+    },
+    {
+      "file": "data/raw/uba_airquality_DEBB021_2024.csv",
+      "url": "https://luftdaten.umweltbundesamt.de/api-proxy/airquality/csv?date_from=2024-01-01&date_to=2024-12-31&time_from=1&time_to=24&station=DEBB021",
+      "bytes": 426426,
+      "sha256": "a8ab64a0cb4d0d0faf003afe7b1e78ed6518fd750a54a06727fe85e2a7df6f1f",
+      "retrieved_now": true
+    },
+    {
+      "file": "data/raw/uba_airquality_DEBB021_2025.csv",
+      "url": "https://luftdaten.umweltbundesamt.de/api-proxy/airquality/csv?date_from=2025-01-01&date_to=2025-12-31&time_from=1&time_to=24&station=DEBB021",
+      "bytes": 423592,
+      "sha256": "7cbecbf82823616cc272d187644c1d54585413454922db182ac6fbc7b7a8160e",
+      "retrieved_now": true
+    },
+    {
+      "file": "data/raw/dwd_air_temperature_03987.zip",
+      "url": "https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/air_temperature/historical/stundenwerte_TU_03987_18930101_20251231_hist.zip",
+      "bytes": 6280168,
+      "sha256": "8bc84415b6441b699b666b10e4e58461f155395860c9bfb1dacdeac658538233",
+      "retrieved_now": true
+    },
+    {
+      "file": "data/raw/dwd_wind_03987.zip",
+      "url": "https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/wind/historical/stundenwerte_FF_03987_18930101_20251231_hist.zip",
+      "bytes": 4628279,
+      "sha256": "5b3ada1e079401c1ae45c933880ef687db90308d7a8e89d887336192ef5f3a1b",
+      "retrieved_now": true
+    },
+    {
+      "file": "data/raw/dwd_sun_03987.zip",
+      "url": "https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/sun/historical/stundenwerte_SD_03987_18930101_20251231_hist.zip",
+      "bytes": 2699265,
+      "sha256": "90a214f27ecff582b935ef598790892341cd6d6fd56b9f9e47d68573c627fd9f",
+      "retrieved_now": true
+    },
+    {
+      "file": "data/raw/dwd_precipitation_03987.zip",
+      "url": "https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/precipitation/historical/stundenwerte_RR_03987_19950901_20251231_hist.zip",
+      "bytes": 786391,
+      "sha256": "38f4426427de6e63188eb42ed427ae11a63735d4ad3f27d3b652b744870e5828",
+      "retrieved_now": true
+    },
+    {
+      "file": "data/raw/dwd_solar_03987.zip",
+      "url": "https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/solar/stundenwerte_ST_03987_row.zip",
+      "bytes": 8012842,
+      "sha256": "bcd2ab75da9075c1d39b168f67ee369ecbf7f2fae44182b0b0b9232272444ffe",
+      "retrieved_now": true
+    }
+  ]
 }

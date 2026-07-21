@@ -1,4 +1,4 @@
-"""Create the project notebook from auditable source cells."""
+"""Create the auditable Jupyter notebook for the heat and air-quality study."""
 
 from pathlib import Path
 
@@ -6,7 +6,7 @@ import nbformat as nbf
 
 
 ROOT = Path(__file__).resolve().parents[1]
-NOTEBOOK_PATH = ROOT / "notebooks" / "co2_entkopplung_und_prognose.ipynb"
+NOTEBOOK_PATH = ROOT / "notebooks" / "hitze_luftqualitaet_und_prognose.ipynb"
 
 
 def md(text: str):
@@ -20,59 +20,68 @@ def code(text: str):
 cells = [
     md(
         r"""
-# Entkopplung von Wirtschaftswachstum und CO₂-Emissionen in Europa
+# Einfluss hoher Temperaturen auf die städtische Luftqualität
 
-## Historische Analyse der EU-27 und Prognose für Deutschland bis 2030
+## Fallstudie Potsdam 2016–2025 und Prognose des dominierenden Schadstoffs
 
-**Forschungsfrage:** Hat seit 2005 in der Mehrheit der heutigen EU-27-Staaten
-eine absolute Entkopplung von Wirtschaftswachstum und territorialen
-CO₂-Emissionen stattgefunden?
+**Forschungsfrage:** Verschlechtert Hitze die Luftqualität insgesamt, oder
+verändert sie vor allem die Zusammensetzung der Luftschadstoffe?
 
-**These:** Für mehr als 50 % der EU-27-Staaten mit vollständigen Daten gilt
-zwischen 2005 und dem letzten gemeinsamen verfügbaren Jahr: Das reale
-Gesamt-BIP ist gestiegen, während die territorialen CO₂-Gesamtemissionen
-gesunken sind.
+**These:** Hohe Temperaturen erhöhen insbesondere die Ozonbelastung, während
+die Stickstoffdioxidbelastung gleichzeitig sinken kann. Dadurch verändert sich
+an heißen Tagen der dominierende Luftschadstoff.
 
-**Operationalisierung:**
+**Prognoseziel:** Vorhersage, welcher Luftschadstoff die Luftqualität am
+Folgetag am stärksten beeinträchtigt.
 
-$$\Delta BIP_i > 0 \quad \land \quad \Delta CO_{2,i} < 0$$
-
-Die primäre Entscheidung vergleicht 2005 mit dem letzten gemeinsamen Jahr. Ein
-log-linearer Trend über alle Jahre dient als Robustheitsprüfung. Anschließend
-werden transparente Prognose-Baselines für Deutschlands CO₂-Emissionen bis
-2030 mit zeitlich geordneter Validierung verglichen.
+Als „dominierend“ gilt der Schadstoff mit dem höchsten stündlichen Einzelindex
+des aktuellen UBA-Luftqualitätsindex (LQI). So werden Ozon, NO₂, PM₁₀, PM₂,₅
+und SO₂ trotz unterschiedlicher Konzentrationsskalen vergleichbar.
 """
     ),
     md(
         r"""
-## 1. Setup und Reproduzierbarkeit
+## 1. Setup und Datenstand
 
-Alle Zufallsprozesse verwenden einen festen Startwert. Rohdaten werden nur
-heruntergeladen, wenn die eingefrorene lokale Kopie fehlt. Die Analyse
-überschreibt keine Rohdaten; abgeleitete Tabellen und Grafiken landen in
-separaten Verzeichnissen.
+Die Rohdaten sind lokal eingefroren. `scripts/download_data.py` lädt zehn
+Jahresdateien des Umweltbundesamtes sowie fünf stündliche DWD-Reihen. Zufällige
+Verfahren verwenden einen festen Startwert; Rohdaten werden nie überschrieben.
 """
     ),
     code(
         r"""
 from __future__ import annotations
 
-import hashlib
 import json
-import sys
+import math
+import re
+import zipfile
 from pathlib import Path
 
+import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import requests
 import seaborn as sns
 from IPython.display import Markdown, display
-from sklearn.linear_model import HuberRegressor, LinearRegression
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from scipy.stats import mannwhitneyu
+from sklearn.compose import ColumnTransformer
+from sklearn.dummy import DummyClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.inspection import permutation_importance
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    confusion_matrix,
+    f1_score,
+)
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 RANDOM_STATE = 42
-np.random.seed(RANDOM_STATE)
+rng = np.random.default_rng(RANDOM_STATE)
 
 ROOT = Path.cwd().resolve()
 if ROOT.name == "notebooks":
@@ -81,671 +90,632 @@ if ROOT.name == "notebooks":
 RAW_DIR = ROOT / "data" / "raw"
 PROCESSED_DIR = ROOT / "data" / "processed"
 FIGURES_DIR = ROOT / "figures"
-for directory in (RAW_DIR, PROCESSED_DIR, FIGURES_DIR):
+MODELS_DIR = ROOT / "models"
+for directory in (PROCESSED_DIR, FIGURES_DIR, MODELS_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
+START_YEAR, END_YEAR = 2016, 2025
+UBA_STATION, DWD_STATION = "DEBB021", "03987"
+POLLUTANTS = ["O3", "NO2", "PM10", "PM2.5", "SO2"]
+LABELS = {
+    "O3": "Ozon (O₃)", "NO2": "Stickstoffdioxid (NO₂)",
+    "PM10": "Feinstaub (PM₁₀)", "PM2.5": "Feinstaub (PM₂,₅)",
+    "SO2": "Schwefeldioxid (SO₂)",
+}
+COLORS = {"O3": "#d95f02", "NO2": "#1f78b4", "PM10": "#7570b3", "PM2.5": "#66a61e", "SO2": "#666666"}
+
 sns.set_theme(style="whitegrid", context="notebook")
-plt.rcParams.update({
-    "font.family": "DejaVu Sans",
-    "figure.figsize": (10, 6),
-    "axes.titlesize": 14,
-    "axes.labelsize": 11,
-    "figure.dpi": 120,
-    "savefig.dpi": 180,
-})
+plt.rcParams.update({"figure.dpi": 120, "savefig.dpi": 180, "axes.titlesize": 14})
 
-print(f"Python: {sys.version.split()[0]}")
-print(f"Projektwurzel: {ROOT}")
+manifest = json.loads((RAW_DIR / "download_manifest.json").read_text(encoding="utf-8"))
+display(pd.DataFrame(manifest["stations"]).T)
+print(f"Eingefrorene Rohdaten: {sum(item['bytes'] for item in manifest['files']) / 1e6:.1f} MB")
 """
     ),
     md(
         r"""
-## 2. Datenquellen und Begriffe
+## 2. Daten laden, Zeitstempel vereinheitlichen und räumlich zuordnen
 
-Die vom Aufgabensteller bereitgestellte Reihe zu CO₂-Emissionen pro Kopf wird
-um zwei OWID-Reihen ergänzt, weil die These **Gesamt-BIP** und
-**Gesamtemissionen** vergleicht:
+- **Luftqualität:** UBA-Station Potsdam-Zentrum (DEBB021), städtischer Hintergrund.
+- **Wetter:** DWD-Station Potsdam (03987), rund 2,3 km entfernt.
+- **Zeit:** UBA-CSV liegt in MEZ/MESZ vor, DWD in UTC. Beide Quellen werden
+  auf UTC normalisiert und anschließend stündlich verbunden.
+- **Ort:** Die räumlich nahe DWD-Station wird einmalig über Koordinaten
+  zugeordnet; anschließend erfolgt der Join über den Stundenzeitstempel.
 
-1. CO₂ pro Kopf – bereitgestellter Ausgangsdatensatz
-2. territoriale CO₂-Gesamtemissionen
-3. reales Gesamt-BIP in konstanten US-Dollar
-
-Die CO₂-Daten basieren auf dem Global Carbon Budget 2025. Erfasst werden
-fossile Brennstoffe und industrielle Prozesse. Landnutzungsänderungen sind
-ausgeschlossen. Internationale Luftfahrt und Schifffahrt werden keinem
-einzelnen Land zugerechnet. „Territorial“ bezeichnet den Ort der Emission und
-nicht den Konsumort importierter Güter.
+UBA-Werte des laufenden Jahres können vorläufig sein. Der hier verwendete
+Zeitraum endet 2025; der genaue Abruf und jede Prüfsumme stehen im Manifest.
 """
     ),
     code(
         r"""
-DATASETS = {
-    "co-emissions-per-capita": {
-        "csv": "https://ourworldindata.org/grapher/co-emissions-per-capita.csv?v=1&csvType=full&useColumnShortNames=true",
-        "metadata": "https://ourworldindata.org/grapher/co-emissions-per-capita.metadata.json?v=1&csvType=full&useColumnShortNames=true",
-    },
-    "annual-co2-emissions-per-country": {
-        "csv": "https://ourworldindata.org/grapher/annual-co2-emissions-per-country.csv?v=1&csvType=full&useColumnShortNames=true",
-        "metadata": "https://ourworldindata.org/grapher/annual-co2-emissions-per-country.metadata.json?v=1&csvType=full&useColumnShortNames=true",
-    },
-    "gdp-worldbank-constant-usd": {
-        "csv": "https://ourworldindata.org/grapher/gdp-worldbank-constant-usd.csv?v=1&csvType=full&useColumnShortNames=true",
-        "metadata": "https://ourworldindata.org/grapher/gdp-worldbank-constant-usd.metadata.json?v=1&csvType=full&useColumnShortNames=true",
-    },
+def parse_uba_timestamp(values: pd.Series) -> pd.Series:
+    cleaned = values.astype(str).str.strip("'\"")
+    extracted = cleaned.str.extract(r"(?P<date>\d{4}-\d{2}-\d{2}) (?P<hour>\d{2}):00")
+    naive = pd.to_datetime(extracted["date"], errors="coerce") + pd.to_timedelta(
+        pd.to_numeric(extracted["hour"], errors="coerce"), unit="h"
+    )
+    localized = pd.DatetimeIndex(naive).tz_localize(
+        "Europe/Berlin", ambiguous="NaT", nonexistent="shift_forward"
+    )
+    return pd.Series(localized.tz_convert("UTC").tz_localize(None), index=values.index)
+
+
+def load_uba() -> pd.DataFrame:
+    frames = []
+    for path in sorted(RAW_DIR.glob(f"uba_airquality_{UBA_STATION}_*.csv")):
+        frame = pd.read_csv(path, sep=";", encoding="utf-8-sig", on_bad_lines="skip")
+        frame.columns = [str(column).strip() for column in frame.columns]
+        date_column = next(column for column in frame if column.lower() == "date")
+        rename = {date_column: "raw_timestamp"}
+        for column in frame.columns:
+            plain = column.lower()
+            if "ozone" in plain:
+                rename[column] = "O3"
+            elif "nitrogen dioxide" in plain:
+                rename[column] = "NO2"
+            elif "pm₁₀" in plain or "pm10" in plain:
+                rename[column] = "PM10"
+            elif "pm₂,₅" in plain or "pm2.5" in plain or "pm25" in plain:
+                rename[column] = "PM2.5"
+            elif "sulphur dioxide" in plain or "sulfur dioxide" in plain:
+                rename[column] = "SO2"
+        frame = frame.rename(columns=rename)
+        frame["timestamp_utc"] = parse_uba_timestamp(frame["raw_timestamp"])
+        for pollutant in POLLUTANTS:
+            frame[pollutant] = pd.to_numeric(frame.get(pollutant), errors="coerce")
+        frames.append(frame[["timestamp_utc", *POLLUTANTS]])
+    result = pd.concat(frames, ignore_index=True).dropna(subset=["timestamp_utc"])
+    return result.groupby("timestamp_utc", as_index=False)[POLLUTANTS].mean()
+
+
+def read_dwd_zip(path: Path) -> pd.DataFrame:
+    with zipfile.ZipFile(path) as archive:
+        product = next(name for name in archive.namelist() if "produkt_" in name.lower() and name.endswith(".txt"))
+        frame = pd.read_csv(archive.open(product), sep=";")
+    frame.columns = [column.strip() for column in frame.columns]
+    return frame
+
+
+def dwd_timestamp(values: pd.Series, solar: bool = False) -> pd.Series:
+    fmt = "%Y%m%d%H:%M" if solar else "%Y%m%d%H"
+    parsed = pd.to_datetime(values.astype(str).str.strip(), format=fmt, errors="coerce", utc=True)
+    if solar:
+        parsed = parsed.dt.round("h")
+    return parsed.dt.tz_localize(None)
+
+
+weather_specs = {
+    "air_temperature": {"TT_TU": "temp_c", "RF_TU": "humidity_pct"},
+    "wind": {"F": "wind_speed_ms", "D": "wind_direction_deg"},
+    "sun": {"SD_SO": "sunshine_h"},
+    "precipitation": {"R1": "precip_mm"},
+    "solar": {"FG_LBERG": "global_radiation_j_cm2", "FD_LBERG": "diffuse_radiation_j_cm2"},
 }
 
-USER_AGENT = "BigDataCo2Emissions university project/1.0"
+weather_frames = []
+for variable, mapping in weather_specs.items():
+    frame = read_dwd_zip(RAW_DIR / f"dwd_{variable}_{DWD_STATION}.zip")
+    frame.columns = [column.strip() for column in frame.columns]
+    frame["timestamp_utc"] = dwd_timestamp(frame["MESS_DATUM"], solar=variable == "solar")
+    keep = [column for column in mapping if column in frame]
+    frame = frame[["timestamp_utc", *keep]].rename(columns=mapping)
+    value_columns = [column for column in frame if column != "timestamp_utc"]
+    for column in value_columns:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce").replace(-999, np.nan)
+    frame = frame.loc[frame["timestamp_utc"].dt.year.between(START_YEAR, END_YEAR)]
+    weather_frames.append(frame.groupby("timestamp_utc", as_index=False)[value_columns].mean())
 
+weather = weather_frames[0]
+for frame in weather_frames[1:]:
+    weather = weather.merge(frame, on="timestamp_utc", how="outer", validate="one_to_one")
 
-def fetch_if_missing(url: str, path: Path) -> None:
-    # Download once and otherwise use the frozen local copy.
-    if path.exists():
-        return
-    response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=120)
-    response.raise_for_status()
-    path.write_bytes(response.content)
+air = load_uba()
+hourly = air.merge(weather, on="timestamp_utc", how="left", validate="one_to_one")
+hourly = hourly.loc[hourly["timestamp_utc"].dt.year.between(START_YEAR, END_YEAR)].sort_values("timestamp_utc")
 
-
-for slug, urls in DATASETS.items():
-    fetch_if_missing(urls["csv"], RAW_DIR / f"{slug}.csv")
-    fetch_if_missing(urls["metadata"], RAW_DIR / f"{slug}.metadata.json")
-
-per_capita = pd.read_csv(RAW_DIR / "co-emissions-per-capita.csv")
-emissions = pd.read_csv(RAW_DIR / "annual-co2-emissions-per-country.csv")
-gdp = pd.read_csv(RAW_DIR / "gdp-worldbank-constant-usd.csv")
-
-with (RAW_DIR / "co-emissions-per-capita.metadata.json").open(encoding="utf-8") as file:
-    per_capita_metadata = json.load(file)
-with (RAW_DIR / "annual-co2-emissions-per-country.metadata.json").open(encoding="utf-8") as file:
-    emissions_metadata = json.load(file)
-with (RAW_DIR / "gdp-worldbank-constant-usd.metadata.json").open(encoding="utf-8") as file:
-    gdp_metadata = json.load(file)
-
-overview = pd.DataFrame({
-    "Datensatz": ["CO₂ pro Kopf", "CO₂ gesamt", "Reales BIP"],
-    "Zeilen": [len(per_capita), len(emissions), len(gdp)],
-    "Entitäten": [per_capita["entity"].nunique(), emissions["entity"].nunique(), gdp["entity"].nunique()],
-    "Von": [per_capita["year"].min(), emissions["year"].min(), gdp["year"].min()],
-    "Bis": [per_capita["year"].max(), emissions["year"].max(), gdp["year"].max()],
-})
-display(overview)
-
-print("CO₂-Metadaten:", per_capita_metadata["chart"]["citation"])
-print("BIP-Metadaten:", gdp_metadata["chart"]["citation"])
+distance_km = 2 * 6371 * math.asin(math.sqrt(
+    math.sin(math.radians(52.401956 - 52.3812) / 2) ** 2
+    + math.cos(math.radians(52.401956)) * math.cos(math.radians(52.3812))
+    * math.sin(math.radians(13.063989 - 13.0622) / 2) ** 2
+))
+print(f"Räumliche Distanz der Stationen: {distance_km:.2f} km")
+print(f"Stündliche Luftqualitätszeilen: {len(air):,}; verbundene Zeilen: {len(hourly):,}")
+display(hourly.head())
 """
     ),
     md(
         r"""
-## 3. Auswahl und Zusammenführung der EU-27
+## 3. Datenqualität und Tagesaggregation
 
-Untersucht werden die heutigen 27 EU-Mitgliedstaaten. Die Auswahl erfolgt über
-ISO-3-Codes, damit Länderbezeichnungen aus verschiedenen Quellen nicht zu
-fehlerhaften Joins führen. Das Endjahr ist das jüngste Jahr, für das alle 27
-Staaten vollständige Werte für CO₂ pro Kopf, Gesamtemissionen und reales BIP
-aufweisen.
+Die Analyse nutzt Tageswerte, weil „heißer Tag“ und „dominierender Schadstoff
+am Folgetag“ Tageskonzepte sind. Schadstoffe werden als tägliches Maximum der
+Stundenwerte bewertet. Meteorologische Größen werden je nach Bedeutung als
+Maximum, Mittel oder Summe aggregiert.
+
+Die aktuellen UBA-LQI-Klassengrenzen werden rückwirkend auf alle Jahre
+angewandt. Das ist eine bewusste Re-Klassifikation für eine einheitliche
+gesundheitliche Skala und keine Behauptung über damals veröffentlichte Indexwerte.
 """
     ),
     code(
         r"""
-EU27 = {
-    "AUT": "Austria", "BEL": "Belgium", "BGR": "Bulgaria", "HRV": "Croatia",
-    "CYP": "Cyprus", "CZE": "Czechia", "DNK": "Denmark", "EST": "Estonia",
-    "FIN": "Finland", "FRA": "France", "DEU": "Germany", "GRC": "Greece",
-    "HUN": "Hungary", "IRL": "Ireland", "ITA": "Italy", "LVA": "Latvia",
-    "LTU": "Lithuania", "LUX": "Luxembourg", "MLT": "Malta", "NLD": "Netherlands",
-    "POL": "Poland", "PRT": "Portugal", "ROU": "Romania", "SVK": "Slovakia",
-    "SVN": "Slovenia", "ESP": "Spain", "SWE": "Sweden",
+LQI_UPPER = {
+    "NO2": [10, 30, 60, 100],
+    "PM10": [9, 27, 54, 90],
+    "PM2.5": [5, 15, 30, 50],
+    "O3": [24, 72, 144, 240],
+    "SO2": [10, 30, 60, 100],
 }
 
-pc_eu = per_capita.loc[per_capita["code"].isin(EU27)].rename(
-    columns={"emissions_total_per_capita": "co2_per_capita_t"}
-)
-co2_eu = emissions.loc[emissions["code"].isin(EU27)].rename(
-    columns={"emissions_total": "co2_total_t"}
-)
-gdp_eu = gdp.loc[gdp["code"].isin(EU27)].rename(
-    columns={"ny_gdp_mktp_kd": "gdp_constant_usd"}
-)
 
-panel = (
-    co2_eu[["entity", "code", "year", "co2_total_t"]]
-    .merge(pc_eu[["code", "year", "co2_per_capita_t"]], on=["code", "year"], how="outer", validate="one_to_one")
-    .merge(gdp_eu[["code", "year", "gdp_constant_usd"]], on=["code", "year"], how="outer", validate="one_to_one")
-    .sort_values(["code", "year"])
-    .reset_index(drop=True)
-)
+def continuous_lqi(values: pd.Series, pollutant: str) -> pd.Series:
+    bounds = LQI_UPPER[pollutant]
+    x = np.asarray(values, dtype=float)
+    xp = np.array([0, *bounds, bounds[-1] * 1.5], dtype=float)
+    fp = np.arange(0, 6, dtype=float)
+    return pd.Series(np.interp(x, xp, fp, left=0, right=5), index=values.index)
 
-panel["entity"] = panel["code"].map(EU27)
-panel["co2_total_mt"] = panel["co2_total_t"] / 1_000_000
-panel["gdp_billion_usd"] = panel["gdp_constant_usd"] / 1_000_000_000
 
-required = ["co2_total_t", "co2_per_capita_t", "gdp_constant_usd"]
-coverage = (
-    panel.loc[panel["year"] >= 2005]
-    .assign(complete=lambda x: x[required].notna().all(axis=1))
-    .groupby("year")["complete"]
-    .sum()
-)
-common_years = coverage[coverage.eq(len(EU27))].index
-START_YEAR = 2005
-END_YEAR = int(common_years.max())
+local_time = hourly["timestamp_utc"].dt.tz_localize("UTC").dt.tz_convert("Europe/Berlin")
+hourly["date"] = local_time.dt.tz_localize(None).dt.normalize()
+for pollutant in POLLUTANTS:
+    hourly[f"{pollutant}_lqi_score"] = continuous_lqi(hourly[pollutant], pollutant)
 
-analysis_panel = panel.loc[panel["year"].between(START_YEAR, END_YEAR)].copy()
-analysis_panel.to_csv(PROCESSED_DIR / "eu27_panel.csv", index=False)
+aggregations = {
+    "temp_max_c": ("temp_c", "max"),
+    "temp_mean_c": ("temp_c", "mean"),
+    "humidity_mean_pct": ("humidity_pct", "mean"),
+    "wind_mean_ms": ("wind_speed_ms", "mean"),
+    "wind_max_ms": ("wind_speed_ms", "max"),
+    "precip_sum_mm": ("precip_mm", "sum"),
+    "sunshine_sum_h": ("sunshine_h", "sum"),
+    "global_radiation_sum_j_cm2": ("global_radiation_j_cm2", "sum"),
+}
+for pollutant in POLLUTANTS:
+    aggregations[f"{pollutant}_max"] = (pollutant, "max")
+    aggregations[f"{pollutant}_mean"] = (pollutant, "mean")
+    aggregations[f"{pollutant}_score"] = (f"{pollutant}_lqi_score", "max")
 
-print(f"Analysezeitraum: {START_YEAR}–{END_YEAR}")
-print(f"EU-27-Staaten mit vollständigen Endpunkten: {coverage.loc[END_YEAR]} von {len(EU27)}")
-display(coverage.tail(10).rename("vollständige Staaten").to_frame())
-"""
-    ),
-    md(
-        r"""
-## 4. Datenqualität
+daily = hourly.groupby("date").agg(**aggregations).sort_index()
+score_columns = [f"{pollutant}_score" for pollutant in POLLUTANTS]
+daily["dominant_pollutant"] = daily[score_columns].idxmax(axis=1).str.replace("_score", "", regex=False)
+daily["dominant_score"] = daily[score_columns].max(axis=1)
+daily["month"] = daily.index.month
+daily["year"] = daily.index.year
+daily.to_csv(PROCESSED_DIR / "potsdam_daily_air_weather.csv", index_label="date")
 
-Geprüft werden Datentypen, Duplikate, fehlende Werte und auffällige Länderwerte.
-Fehlende Werte werden **nicht automatisch imputiert**: Bei nationalen
-Zeitreihen könnte eine Imputation echte historische Brüche glätten. Für die
-Kernanalyse wird stattdessen ein gemeinsames vollständiges Endjahr gewählt.
-"""
-    ),
-    code(
-        r"""
 quality = pd.DataFrame({
-    "Kennzahl": [
-        "Zeilen im EU-27-Analysepanel",
-        "Doppelte Land-Jahr-Schlüssel",
-        "Fehlende CO₂-Gesamtwerte",
-        "Fehlende CO₂-pro-Kopf-Werte",
-        "Fehlende BIP-Werte",
-    ],
-    "Wert": [
-        len(analysis_panel),
-        analysis_panel.duplicated(["code", "year"]).sum(),
-        analysis_panel["co2_total_t"].isna().sum(),
-        analysis_panel["co2_per_capita_t"].isna().sum(),
-        analysis_panel["gdp_constant_usd"].isna().sum(),
+    "Variable": [*POLLUTANTS, "Temperatur", "Wind", "Niederschlag", "Sonne", "Globalstrahlung"],
+    "Stündliche Vollständigkeit": [
+        *(hourly[p].notna().mean() for p in POLLUTANTS),
+        hourly["temp_c"].notna().mean(), hourly["wind_speed_ms"].notna().mean(),
+        hourly["precip_mm"].notna().mean(), hourly["sunshine_h"].notna().mean(),
+        hourly["global_radiation_j_cm2"].notna().mean(),
     ],
 })
-display(quality)
+display(quality.style.format({"Stündliche Vollständigkeit": "{:.1%}"}))
 
-missing_matrix = (
-    analysis_panel.set_index(["entity", "year"])[required]
-    .isna()
-    .any(axis=1)
-    .unstack("year")
-)
-
-fig, ax = plt.subplots(figsize=(12, 7))
-sns.heatmap(missing_matrix, cmap=["#f2f2f2", "#d62728"], cbar=False, linewidths=0.25, ax=ax)
-missing_rows = int(missing_matrix.to_numpy().sum())
-ax.set_title(
-    "Keine fehlenden Land-Jahr-Zeilen im EU-27-Panel"
-    if missing_rows == 0
-    else f"Fehlende Land-Jahr-Zeilen im EU-27-Panel: {missing_rows}"
-)
-ax.set_xlabel("Jahr")
-ax.set_ylabel("")
+fig, ax = plt.subplots(figsize=(10, 4.8))
+sns.barplot(data=quality, x="Stündliche Vollständigkeit", y="Variable", color="#4c78a8", ax=ax)
+ax.set(xlim=(0, 1), xlabel="Anteil vorhandener Stundenwerte", ylabel="", title="Datenabdeckung der verbundenen Stundenreihen")
+ax.xaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
 plt.tight_layout()
-plt.savefig(FIGURES_DIR / "01_missing_values.png", bbox_inches="tight")
+plt.savefig(FIGURES_DIR / "01_data_coverage.png", bbox_inches="tight")
 plt.show()
 """
     ),
     md(
         r"""
-## 5. Deskriptive Analyse und Visualisierung
+## 4. These prüfen: Was ändert sich an heißen Tagen?
 
-Für jedes Land werden BIP und Emissionen relativ zu 2005 indexiert. Dadurch
-lassen sich unterschiedlich große Volkswirtschaften auf derselben Skala
-vergleichen. Die These selbst verwendet unskalierte prozentuale Veränderungen;
-eine Standardisierung wäre hierfür nicht erforderlich und würde die
-Interpretierbarkeit verschlechtern.
+Als **heiß** gelten Tage von Mai bis September oberhalb des 90. Perzentils der
+Tageshöchsttemperatur innerhalb dieses warmen Halbjahrs. Die Vergleichsgruppe
+sind die übrigen warmen Tage. Damit wird der triviale Vergleich Winter gegen
+Sommer vermieden.
+
+Für Ozon wird ein einseitiger Mann-Whitney-Test auf höhere Werte, für NO₂ auf
+niedrigere Werte verwendet. Zusätzlich zeigen Bootstrap-Intervalle die Größe
+der Medianunterschiede. Das ist ein Zusammenhangstest, kein Kausalnachweis.
 """
     ),
     code(
         r"""
-baselines = (
-    analysis_panel.loc[analysis_panel["year"].eq(START_YEAR), ["code", "gdp_constant_usd", "co2_total_t"]]
-    .set_index("code")
-    .rename(columns={"gdp_constant_usd": "gdp_base", "co2_total_t": "co2_base"})
-)
-indexed = analysis_panel.join(baselines, on="code")
-indexed["gdp_index"] = indexed["gdp_constant_usd"] / indexed["gdp_base"] * 100
-indexed["co2_index"] = indexed["co2_total_t"] / indexed["co2_base"] * 100
+warm = daily["month"].between(5, 9) & daily["temp_max_c"].notna()
+HOT_THRESHOLD = float(daily.loc[warm, "temp_max_c"].quantile(0.90))
+daily["hot_day"] = warm & daily["temp_max_c"].ge(HOT_THRESHOLD)
+reference = warm & ~daily["hot_day"]
+daily.to_csv(PROCESSED_DIR / "potsdam_daily_air_weather.csv", index_label="date")
 
-summary_index = indexed.groupby("year").agg(
-    gdp_median=("gdp_index", "median"),
-    gdp_q25=("gdp_index", lambda s: s.quantile(0.25)),
-    gdp_q75=("gdp_index", lambda s: s.quantile(0.75)),
-    co2_median=("co2_index", "median"),
-    co2_q25=("co2_index", lambda s: s.quantile(0.25)),
-    co2_q75=("co2_index", lambda s: s.quantile(0.75)),
-)
 
-fig, ax = plt.subplots(figsize=(11, 6))
-x = summary_index.index.to_numpy()
-ax.plot(x, summary_index["gdp_median"].to_numpy(), color="#1f77b4", linewidth=2.5, label="Reales BIP, Median")
-ax.fill_between(x, summary_index["gdp_q25"].to_numpy(), summary_index["gdp_q75"].to_numpy(), color="#1f77b4", alpha=0.16)
-ax.plot(x, summary_index["co2_median"].to_numpy(), color="#d95f02", linewidth=2.5, label="Territoriales CO₂, Median")
-ax.fill_between(x, summary_index["co2_q25"].to_numpy(), summary_index["co2_q75"].to_numpy(), color="#d95f02", alpha=0.16)
-ax.axhline(100, color="black", linewidth=0.8, linestyle="--")
-ax.set(title="Median der EU-27-Länder: BIP steigt, CO₂ sinkt", xlabel="Jahr", ylabel=f"Index ({START_YEAR} = 100)")
+def bootstrap_median_difference(hot_values: pd.Series, ref_values: pd.Series, n=5000):
+    hot_values = hot_values.dropna().to_numpy()
+    ref_values = ref_values.dropna().to_numpy()
+    diffs = np.empty(n)
+    for i in range(n):
+        diffs[i] = np.median(rng.choice(hot_values, len(hot_values), replace=True)) - np.median(
+            rng.choice(ref_values, len(ref_values), replace=True)
+        )
+    return float(np.median(hot_values) - np.median(ref_values)), np.quantile(diffs, [0.025, 0.975])
+
+
+o3_diff, o3_ci = bootstrap_median_difference(daily.loc[daily["hot_day"], "O3_max"], daily.loc[reference, "O3_max"])
+no2_diff, no2_ci = bootstrap_median_difference(daily.loc[daily["hot_day"], "NO2_max"], daily.loc[reference, "NO2_max"])
+o3_test = mannwhitneyu(daily.loc[daily["hot_day"], "O3_max"].dropna(), daily.loc[reference, "O3_max"].dropna(), alternative="greater")
+no2_test = mannwhitneyu(daily.loc[daily["hot_day"], "NO2_max"].dropna(), daily.loc[reference, "NO2_max"].dropna(), alternative="less")
+
+thesis_supported = o3_diff > 0 and o3_test.pvalue < 0.05 and no2_diff < 0 and no2_test.pvalue < 0.05
+display(Markdown(f'''
+### Ergebnis der These
+
+- Hitzeschwelle: **{HOT_THRESHOLD:.1f} °C**; {daily['hot_day'].sum()} heiße Tage.
+- Ozonmaximum: Medianunterschied heiß minus Referenz **{o3_diff:+.1f} µg/m³**
+  (95%-Bootstrap-Intervall {o3_ci[0]:+.1f} bis {o3_ci[1]:+.1f}; p={o3_test.pvalue:.3g}).
+- NO₂-Maximum: Medianunterschied **{no2_diff:+.1f} µg/m³**
+  (95%-Bootstrap-Intervall {no2_ci[0]:+.1f} bis {no2_ci[1]:+.1f}; p={no2_test.pvalue:.3g}).
+
+Die vorab formulierte These wird nach diesen Kriterien **{'unterstützt' if thesis_supported else 'nicht vollständig unterstützt'}**.
+'''))
+"""
+    ),
+    code(
+        r"""
+fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+sample = daily.loc[warm].copy()
+sns.regplot(data=sample, x="temp_max_c", y="O3_max", scatter_kws={"s": 16, "alpha": 0.35}, line_kws={"color": COLORS["O3"]}, ax=axes[0])
+axes[0].axvline(HOT_THRESHOLD, color="#555555", linestyle="--", linewidth=1)
+axes[0].set(title="Ozon steigt mit hohen Tagesmaxima", xlabel="Tageshöchsttemperatur (°C)", ylabel="O₃-Tagesmaximum (µg/m³)")
+sns.regplot(data=sample, x="temp_max_c", y="NO2_max", scatter_kws={"s": 16, "alpha": 0.35}, line_kws={"color": COLORS["NO2"]}, ax=axes[1])
+axes[1].axvline(HOT_THRESHOLD, color="#555555", linestyle="--", linewidth=1)
+axes[1].set(title="NO₂ reagiert anders als Ozon", xlabel="Tageshöchsttemperatur (°C)", ylabel="NO₂-Tagesmaximum (µg/m³)")
+plt.tight_layout()
+plt.savefig(FIGURES_DIR / "02_temperature_o3_no2.png", bbox_inches="tight")
+plt.show()
+
+comparison = daily.loc[warm, score_columns + ["hot_day"]].melt(id_vars="hot_day", var_name="pollutant", value_name="LQI score")
+comparison["pollutant"] = comparison["pollutant"].str.replace("_score", "", regex=False).map(LABELS)
+comparison["Tagtyp"] = comparison["hot_day"].map({True: "Heiß", False: "Andere warme Tage"})
+fig, ax = plt.subplots(figsize=(11, 5.5))
+sns.boxplot(data=comparison, x="pollutant", y="LQI score", hue="Tagtyp", showfliers=False, ax=ax)
+ax.set(title="Hitze verändert die Schadstoffmischung", xlabel="", ylabel="Maximaler kontinuierlicher LQI-Einzelindex")
 ax.legend(frameon=False)
 plt.tight_layout()
-plt.savefig(FIGURES_DIR / "02_eu27_index.png", bbox_inches="tight")
+plt.savefig(FIGURES_DIR / "03_hot_day_lqi_scores.png", bbox_inches="tight")
+plt.show()
+"""
+    ),
+    code(
+        r"""
+composition = (
+    daily.loc[warm]
+    .assign(Tagtyp=lambda x: x["hot_day"].map({True: "Heiße Tage", False: "Andere warme Tage"}))
+    .groupby("Tagtyp")["dominant_pollutant"]
+    .value_counts(normalize=True)
+    .unstack(fill_value=0)
+    .reindex(columns=POLLUTANTS, fill_value=0)
+)
+display(composition.style.format("{:.1%}"))
+
+fig, ax = plt.subplots(figsize=(10, 5))
+bottom = np.zeros(len(composition))
+for pollutant in POLLUTANTS:
+    values = composition[pollutant].to_numpy()
+    ax.bar(composition.index, values, bottom=bottom, label=LABELS[pollutant], color=COLORS[pollutant])
+    bottom += values
+ax.set(title="Der dominierende Schadstoff verschiebt sich an heißen Tagen", xlabel="", ylabel="Anteil der Tage", ylim=(0, 1))
+ax.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
+ax.legend(frameon=False, bbox_to_anchor=(1.02, 1), loc="upper left")
+plt.tight_layout()
+plt.savefig(FIGURES_DIR / "04_dominant_composition.png", bbox_inches="tight")
 plt.show()
 """
     ),
     md(
         r"""
-## 6. Prüfung der These
+## 5. Prognose: dominierender Schadstoff am Folgetag
 
-Der Endpunktvergleich beantwortet die These direkt. Zusätzlich werden für
-jedes Land jährliche log-lineare Wachstumsraten geschätzt. Absolute Entkopplung
-im Robustheitscheck liegt vor, wenn der geschätzte BIP-Trend positiv und der
-CO₂-Trend negativ ist.
+Die Vorhersage kombiniert:
+
+- den aktuellen maximalen LQI-Einzelindex aller fünf Schadstoffe,
+- die **Wetterprognose für den Folgetag** (hier im historischen Training durch
+  die tatsächlich gemessenen Wetterwerte ersetzt),
+- die Jahreszeit als zyklische Variable.
+
+Die letzten zwei Jahre (2024–2025) bleiben vollständig außerhalb des Trainings.
+Verglichen werden Mehrheitsklasse, multinomiale logistische Regression und
+Random Forest. Die Modellwahl erfolgt nach Macro-F1, damit seltenere
+Schadstoffklassen nicht ignoriert werden.
 """
     ),
     code(
         r"""
-start = analysis_panel.loc[analysis_panel["year"].eq(START_YEAR)].set_index("code")
-end = analysis_panel.loc[analysis_panel["year"].eq(END_YEAR)].set_index("code")
-
-results = pd.DataFrame(index=sorted(EU27))
-results["country"] = results.index.map(EU27)
-results["gdp_change_pct"] = (end["gdp_constant_usd"] / start["gdp_constant_usd"] - 1) * 100
-results["co2_change_pct"] = (end["co2_total_t"] / start["co2_total_t"] - 1) * 100
-results["co2_per_capita_change_pct"] = (end["co2_per_capita_t"] / start["co2_per_capita_t"] - 1) * 100
-results["absolute_decoupling"] = results["gdp_change_pct"].gt(0) & results["co2_change_pct"].lt(0)
-
-
-def annual_log_trend(group: pd.DataFrame, column: str) -> float:
-    valid = group[["year", column]].dropna()
-    valid = valid.loc[valid[column].gt(0)]
-    slope = np.polyfit(valid["year"], np.log(valid[column]), 1)[0]
-    return (np.exp(slope) - 1) * 100
-
-
-trends = analysis_panel.groupby("code").apply(
-    lambda group: pd.Series({
-        "gdp_trend_pct_pa": annual_log_trend(group, "gdp_constant_usd"),
-        "co2_trend_pct_pa": annual_log_trend(group, "co2_total_t"),
-    }),
-    include_groups=False,
-)
-results = results.join(trends)
-results["trend_absolute_decoupling"] = results["gdp_trend_pct_pa"].gt(0) & results["co2_trend_pct_pa"].lt(0)
-
-for column in ["gdp_change_pct", "co2_change_pct", "co2_per_capita_change_pct"]:
-    q1, q3 = results[column].quantile([0.25, 0.75])
-    iqr = q3 - q1
-    results[f"{column}_iqr_outlier"] = ~results[column].between(q1 - 1.5 * iqr, q3 + 1.5 * iqr)
-
-results = results.reset_index(names="code").sort_values("co2_change_pct")
-results.to_csv(PROCESSED_DIR / "decoupling_results.csv", index=False)
-
-decoupled_count = int(results["absolute_decoupling"].sum())
-decoupled_share = decoupled_count / len(results)
-trend_count = int(results["trend_absolute_decoupling"].sum())
-thesis_supported = decoupled_share > 0.5
-
-display(results[[
-    "country", "gdp_change_pct", "co2_change_pct", "co2_per_capita_change_pct",
-    "absolute_decoupling", "trend_absolute_decoupling"
-]].style.format({
-    "gdp_change_pct": "{:+.1f}%",
-    "co2_change_pct": "{:+.1f}%",
-    "co2_per_capita_change_pct": "{:+.1f}%",
-}))
-
-display(Markdown(
-    f"### Ergebnis der These\n\n"
-    f"**{decoupled_count} von {len(results)} Staaten ({decoupled_share:.1%})** erfüllen "
-    f"die Endpunktdefinition. Die These wird damit **{'unterstützt' if thesis_supported else 'nicht unterstützt'}**. "
-    f"Der Trend-Robustheitscheck klassifiziert {trend_count} von {len(results)} Staaten als absolut entkoppelt."
-))
-"""
-    ),
-    code(
-        r"""
-fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
-hist_columns = [
-    ("gdp_change_pct", "Reales BIP", "#1f77b4"),
-    ("co2_change_pct", "CO₂ gesamt", "#d95f02"),
-    ("co2_per_capita_change_pct", "CO₂ pro Kopf", "#7570b3"),
+weather_columns = [
+    "temp_max_c", "temp_mean_c", "humidity_mean_pct", "wind_mean_ms",
+    "precip_sum_mm", "sunshine_sum_h", "global_radiation_sum_j_cm2",
 ]
-for ax, (column, title, color) in zip(axes, hist_columns):
-    sns.histplot(results[column], bins=9, kde=True, color=color, ax=ax)
-    ax.axvline(results[column].median(), color="black", linestyle="--", linewidth=1)
-    ax.set(title=title, xlabel=f"Veränderung {START_YEAR}–{END_YEAR} (%)", ylabel="Länder")
-plt.suptitle("Verteilungen der zentralen Veränderungsraten", y=1.03)
-plt.tight_layout()
-plt.savefig(FIGURES_DIR / "03_change_distributions.png", bbox_inches="tight")
-plt.show()
+current_score_columns = [f"{pollutant}_score" for pollutant in POLLUTANTS]
 
-long_changes = results.melt(
-    id_vars=["country"],
-    value_vars=["gdp_change_pct", "co2_change_pct", "co2_per_capita_change_pct"],
-    var_name="Kennzahl",
-    value_name="Veränderung (%)",
-)
-labels = {
-    "gdp_change_pct": "Reales BIP",
-    "co2_change_pct": "CO₂ gesamt",
-    "co2_per_capita_change_pct": "CO₂ pro Kopf",
+next_weather = daily[weather_columns].shift(-1).add_prefix("forecast_")
+model_data = pd.concat([daily[current_score_columns], next_weather], axis=1)
+model_data["target"] = daily["dominant_pollutant"].shift(-1)
+model_data["target_date"] = daily.index.to_series().shift(-1)
+model_data["day_gap"] = (model_data["target_date"] - model_data.index.to_series()).dt.days
+day_of_year = model_data["target_date"].dt.dayofyear
+model_data["season_sin"] = np.sin(2 * np.pi * day_of_year / 365.25)
+model_data["season_cos"] = np.cos(2 * np.pi * day_of_year / 365.25)
+model_data = model_data.loc[model_data["day_gap"].eq(1)].dropna(subset=["target"])
+
+FEATURES = current_score_columns + [f"forecast_{column}" for column in weather_columns] + ["season_sin", "season_cos"]
+train_mask = model_data["target_date"] < pd.Timestamp("2024-01-01")
+X_train, y_train = model_data.loc[train_mask, FEATURES], model_data.loc[train_mask, "target"]
+X_test, y_test = model_data.loc[~train_mask, FEATURES], model_data.loc[~train_mask, "target"]
+
+models = {
+    "Mehrheitsklasse": Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("model", DummyClassifier(strategy="prior")),
+    ]),
+    "Logistische Regression": Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scale", StandardScaler()),
+        ("model", LogisticRegression(max_iter=4000, class_weight="balanced", random_state=RANDOM_STATE)),
+    ]),
+    "Random Forest": Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("model", RandomForestClassifier(
+            n_estimators=500, min_samples_leaf=3, max_features="sqrt",
+            class_weight="balanced_subsample", random_state=RANDOM_STATE, n_jobs=-1,
+        )),
+    ]),
 }
-long_changes["Kennzahl"] = long_changes["Kennzahl"].map(labels)
 
-fig, ax = plt.subplots(figsize=(9, 5))
-sns.boxplot(data=long_changes, x="Kennzahl", y="Veränderung (%)", color="#dedede", ax=ax)
-sns.stripplot(data=long_changes, x="Kennzahl", y="Veränderung (%)", color="#333333", size=4, alpha=0.7, ax=ax)
-ax.axhline(0, color="black", linewidth=0.8)
-ax.set_title("Streuung und potenzielle Ausreißer")
-plt.tight_layout()
-plt.savefig(FIGURES_DIR / "04_boxplots.png", bbox_inches="tight")
-plt.show()
-
-outlier_columns = [c for c in results if c.endswith("_iqr_outlier")]
-display(results.loc[results[outlier_columns].any(axis=1), ["country", *hist_columns[0][:1], "co2_change_pct", "co2_per_capita_change_pct"]])
-"""
-    ),
-    code(
-        r"""
-corr_columns = [
-    "gdp_change_pct", "co2_change_pct", "co2_per_capita_change_pct",
-    "gdp_trend_pct_pa", "co2_trend_pct_pa",
-]
-corr = results[corr_columns].corr()
-
-fig, ax = plt.subplots(figsize=(8, 6))
-sns.heatmap(corr, annot=True, fmt=".2f", cmap="vlag", center=0, square=True, ax=ax)
-ax.set_title("Korrelationen der Veränderungs- und Trendkennzahlen")
-ax.set_xticklabels(["BIP Δ", "CO₂ Δ", "CO₂/Kopf Δ", "BIP-Trend", "CO₂-Trend"], rotation=35, ha="right")
-ax.set_yticklabels(["BIP Δ", "CO₂ Δ", "CO₂/Kopf Δ", "BIP-Trend", "CO₂-Trend"], rotation=0)
-plt.tight_layout()
-plt.savefig(FIGURES_DIR / "05_correlation_heatmap.png", bbox_inches="tight")
-plt.show()
-"""
-    ),
-    code(
-        r"""
-fig, ax = plt.subplots(figsize=(11, 8))
-
-x_min = min(-5, results["gdp_change_pct"].min() - 5)
-x_max = results["gdp_change_pct"].max() + 8
-y_min = results["co2_change_pct"].min() - 8
-y_max = max(8, results["co2_change_pct"].max() + 8)
-ax.axvspan(0, x_max, ymin=0, ymax=(0 - y_min) / (y_max - y_min), color="#2ca25f", alpha=0.10)
-
-palette = results["absolute_decoupling"].map({True: "#238b45", False: "#b2182b"})
-ax.scatter(results["gdp_change_pct"], results["co2_change_pct"], c=palette, s=65, edgecolor="white", linewidth=0.8)
-label_offsets = {"SVK": (4, 11), "ROU": (4, -12), "NLD": (4, 8), "HUN": (4, -9)}
-for row in results.itertuples():
-    ax.annotate(
-        row.code,
-        (row.gdp_change_pct, row.co2_change_pct),
-        xytext=label_offsets.get(row.code, (4, 4)),
-        textcoords="offset points",
-        fontsize=8,
-    )
-
-ax.axvline(0, color="black", linewidth=1)
-ax.axhline(0, color="black", linewidth=1)
-ax.set_xlim(x_min, x_max)
-ax.set_ylim(y_min, y_max)
-ax.set(
-    title=f"Absolute Entkopplung in {decoupled_count} von {len(results)} EU-Staaten",
-    xlabel=f"Veränderung reales BIP {START_YEAR}–{END_YEAR} (%)",
-    ylabel=f"Veränderung territoriales CO₂ {START_YEAR}–{END_YEAR} (%)",
-)
-ax.text(x_max * 0.98, y_min + 2, "Absolute Entkopplung", ha="right", va="bottom", color="#238b45", weight="bold")
-plt.tight_layout()
-plt.savefig(FIGURES_DIR / "06_decoupling_quadrant.png", bbox_inches="tight")
-plt.show()
-"""
-    ),
-    md(
-        r"""
-## 7. Prognose der deutschen CO₂-Emissionen bis 2030
-
-Die deutsche Reihe beginnt 1990, um genügend Beobachtungen und den seit der
-Wiedervereinigung relevanten Strukturwandel abzudecken. Fünf transparente
-Baselines werden verglichen:
-
-- letzter beobachteter Wert (naiv),
-- Drift seit 1990,
-- linearer Trend seit 1990,
-- linearer Trend der letzten 20 Jahre,
-- robuster Huber-Trend der letzten 20 Jahre.
-
-Die Validierung ist zeitlich geordnet. Für mehrere Ursprungsjahre werden jeweils
-die folgenden sechs Jahre prognostiziert. Erst nach diesem Out-of-Sample-
-Vergleich wird das Modell mit dem niedrigsten RMSE auf allen verfügbaren Daten
-neu geschätzt. Das vermeidet eine zufällige Train-Test-Aufteilung und damit
-Zukunftsinformationen im Training.
-"""
-    ),
-    code(
-        r"""
-germany = (
-    emissions.loc[(emissions["code"].eq("DEU")) & emissions["year"].between(1990, END_YEAR), ["year", "emissions_total"]]
-    .rename(columns={"emissions_total": "co2_total_t"})
-    .dropna()
-    .sort_values("year")
-)
-germany["co2_total_mt"] = germany["co2_total_t"] / 1_000_000
-
-fig, ax = plt.subplots(figsize=(11, 5.5))
-ax.plot(germany["year"], germany["co2_total_mt"], color="#222222", linewidth=2.3)
-ax.scatter(germany["year"], germany["co2_total_mt"], color="#d95f02", s=22, zorder=3)
-ax.set(title="Deutschlands territoriale CO₂-Emissionen seit 1990", xlabel="Jahr", ylabel="Millionen Tonnen CO₂")
-plt.tight_layout()
-plt.savefig(FIGURES_DIR / "07_germany_historical.png", bbox_inches="tight")
-plt.show()
-"""
-    ),
-    code(
-        r"""
-MODELS = ["Naiv", "Drift", "Linear 1990+", "Linear letzte 20 J.", "Huber letzte 20 J."]
-
-
-def forecast_model(model_name: str, train: pd.DataFrame, future_years: np.ndarray) -> np.ndarray:
-    years = train["year"].to_numpy(dtype=float)
-    values = train["co2_total_mt"].to_numpy(dtype=float)
-    future_years = np.asarray(future_years, dtype=float)
-
-    if model_name == "Naiv":
-        return np.repeat(values[-1], len(future_years))
-    if model_name == "Drift":
-        slope = (values[-1] - values[0]) / (years[-1] - years[0])
-        return values[-1] + slope * (future_years - years[-1])
-
-    subset = train if model_name == "Linear 1990+" else train.tail(20)
-    x0 = subset["year"].mean()
-    x_train = (subset[["year"]].to_numpy() - x0)
-    x_future = future_years.reshape(-1, 1) - x0
-    if model_name == "Huber letzte 20 J.":
-        model = HuberRegressor(epsilon=1.35, alpha=0.0, max_iter=2000)
-    else:
-        model = LinearRegression()
-    model.fit(x_train, subset["co2_total_mt"])
-    # Nur die geschätzte Steigung wird fortgeschrieben. Die Prognose startet
-    # am letzten beobachteten Wert und erzeugt daher keinen künstlichen Sprung
-    # zwischen Historie und Prognose.
-    slope = float(model.coef_[0])
-    return values[-1] + slope * (future_years - years[-1])
-
-
-HORIZON = 6
-validation_rows = []
-for origin in range(2009, END_YEAR - HORIZON + 1):
-    train = germany.loc[germany["year"].le(origin)]
-    test = germany.loc[germany["year"].between(origin + 1, origin + HORIZON)]
-    if len(test) != HORIZON:
-        continue
-    for model_name in MODELS:
-        predictions = forecast_model(model_name, train, test["year"].to_numpy())
-        for horizon, (_, actual), predicted in zip(
-            range(1, HORIZON + 1), test[["year", "co2_total_mt"]].iterrows(), predictions
-        ):
-            validation_rows.append({
-                "origin": origin,
-                "horizon": horizon,
-                "model": model_name,
-                "actual_mt": actual["co2_total_mt"],
-                "predicted_mt": predicted,
-                "error_mt": actual["co2_total_mt"] - predicted,
-            })
-
-validation = pd.DataFrame(validation_rows)
-model_comparison = (
-    validation.groupby("model")
-    .apply(lambda group: pd.Series({
-        "MAE_Mt": mean_absolute_error(group["actual_mt"], group["predicted_mt"]),
-        "RMSE_Mt": mean_squared_error(group["actual_mt"], group["predicted_mt"]) ** 0.5,
-        "Bias_Mt": group["predicted_mt"].sub(group["actual_mt"]).mean(),
-        "Prognosen": len(group),
-    }), include_groups=False)
-    .sort_values("RMSE_Mt")
-)
-BEST_MODEL = model_comparison.index[0]
-model_comparison.to_csv(PROCESSED_DIR / "forecast_model_comparison.csv")
-display(model_comparison.style.format({"MAE_Mt": "{:.1f}", "RMSE_Mt": "{:.1f}", "Bias_Mt": "{:+.1f}"}))
-print(f"Ausgewähltes Modell: {BEST_MODEL}")
-
-fig, ax = plt.subplots(figsize=(9, 5))
-ordered = model_comparison.sort_values("RMSE_Mt", ascending=True)
-sns.barplot(x=ordered["RMSE_Mt"], y=ordered.index, color="#777777", ax=ax)
-ax.patches[0].set_facecolor("#d95f02")
-ax.set(title="Zeitlich geordneter Modellvergleich", xlabel="Out-of-Sample RMSE (Mio. t CO₂)", ylabel="")
-plt.tight_layout()
-plt.savefig(FIGURES_DIR / "08_model_comparison.png", bbox_inches="tight")
-plt.show()
-"""
-    ),
-    code(
-        r"""
-future_years = np.arange(END_YEAR + 1, 2031)
-point_forecast = forecast_model(BEST_MODEL, germany, future_years)
-
-selected_errors = validation.loc[validation["model"].eq(BEST_MODEL)]
-interval_rows = []
-for horizon, year, prediction in zip(range(1, len(future_years) + 1), future_years, point_forecast):
-    errors = selected_errors.loc[selected_errors["horizon"].eq(horizon), "error_mt"]
-    interval_rows.append({
-        "year": int(year),
-        "forecast_mt": max(0.0, float(prediction)),
-        "lower_80_mt": max(0.0, float(prediction + errors.quantile(0.10))),
-        "upper_80_mt": max(0.0, float(prediction + errors.quantile(0.90))),
-        "lower_95_mt": max(0.0, float(prediction + errors.quantile(0.025))),
-        "upper_95_mt": max(0.0, float(prediction + errors.quantile(0.975))),
+rows = []
+predictions = {}
+for name, estimator in models.items():
+    estimator.fit(X_train, y_train)
+    prediction = estimator.predict(X_test)
+    predictions[name] = prediction
+    rows.append({
+        "Modell": name,
+        "Accuracy": accuracy_score(y_test, prediction),
+        "Balanced Accuracy": balanced_accuracy_score(y_test, prediction),
+        "Macro-F1": f1_score(y_test, prediction, average="macro", zero_division=0),
     })
 
-forecast = pd.DataFrame(interval_rows)
-forecast.to_csv(PROCESSED_DIR / "germany_forecast_2030.csv", index=False)
-display(forecast.style.format({column: "{:.1f}" for column in forecast.columns if column != "year"}))
+model_comparison = pd.DataFrame(rows).set_index("Modell").sort_values("Macro-F1", ascending=False)
+BEST_MODEL_NAME = model_comparison.drop(index="Mehrheitsklasse")["Macro-F1"].idxmax()
+best_model = models[BEST_MODEL_NAME]
+model_comparison.to_csv(PROCESSED_DIR / "model_comparison.csv")
+joblib.dump({"model": best_model, "features": FEATURES, "labels": LABELS}, MODELS_DIR / "dominant_pollutant_model.joblib")
 
-fig, ax = plt.subplots(figsize=(11, 6))
-history_window = germany.loc[germany["year"].ge(2000)]
-ax.plot(history_window["year"], history_window["co2_total_mt"], color="#222222", linewidth=2.2, label="Beobachtung")
-ax.plot(forecast["year"], forecast["forecast_mt"], color="#d95f02", linewidth=2.5, marker="o", label=f"Prognose: {BEST_MODEL}")
-ax.fill_between(forecast["year"], forecast["lower_95_mt"], forecast["upper_95_mt"], color="#d95f02", alpha=0.12, label="95%-Fehlerband")
-ax.fill_between(forecast["year"], forecast["lower_80_mt"], forecast["upper_80_mt"], color="#d95f02", alpha=0.24, label="80%-Fehlerband")
-ax.axvline(END_YEAR + 0.5, color="#777777", linestyle="--", linewidth=1)
-ax.set(title="Explorative Prognose der deutschen CO₂-Emissionen bis 2030", xlabel="Jahr", ylabel="Millionen Tonnen CO₂")
-ax.legend(frameon=False, ncol=2)
+display(model_comparison.style.format("{:.3f}"))
+print(f"Ausgewähltes Modell: {BEST_MODEL_NAME}; Testtage: {len(y_test):,}")
+
+fig, ax = plt.subplots(figsize=(9, 4.8))
+ordered = model_comparison.sort_values("Macro-F1")
+colors = ["#999999" if name != BEST_MODEL_NAME else "#d95f02" for name in ordered.index]
+ax.barh(ordered.index, ordered["Macro-F1"], color=colors)
+for i, value in enumerate(ordered["Macro-F1"]):
+    ax.text(value + 0.01, i, f"{value:.2f}", va="center")
+ax.set(title="Zeitlich getrennte Modellbewertung 2024–2025", xlabel="Macro-F1", ylabel="", xlim=(0, 1))
 plt.tight_layout()
-plt.savefig(FIGURES_DIR / "09_germany_forecast.png", bbox_inches="tight")
+plt.savefig(FIGURES_DIR / "05_model_comparison.png", bbox_inches="tight")
+plt.show()
+"""
+    ),
+    code(
+        r"""
+class_order = [label for label in POLLUTANTS if label in set(y_test) | set(predictions[BEST_MODEL_NAME])]
+matrix = confusion_matrix(y_test, predictions[BEST_MODEL_NAME], labels=class_order, normalize="true")
+fig, ax = plt.subplots(figsize=(7.5, 6))
+sns.heatmap(matrix, annot=True, fmt=".0%", cmap="Blues", xticklabels=[LABELS[x] for x in class_order], yticklabels=[LABELS[x] for x in class_order], ax=ax)
+ax.set(title=f"Trefferprofil: {BEST_MODEL_NAME}", xlabel="Prognose", ylabel="Tatsächlich")
+plt.xticks(rotation=25, ha="right")
+plt.yticks(rotation=0)
+plt.tight_layout()
+plt.savefig(FIGURES_DIR / "06_confusion_matrix.png", bbox_inches="tight")
+plt.show()
+
+importance = permutation_importance(
+    best_model, X_test, y_test, scoring="f1_macro", n_repeats=15,
+    random_state=RANDOM_STATE, n_jobs=-1,
+)
+feature_labels = {
+    **{f"{p}_score": f"heutiger {LABELS[p]}-Index" for p in POLLUTANTS},
+    "forecast_temp_max_c": "Tmax morgen", "forecast_temp_mean_c": "Tmittel morgen",
+    "forecast_humidity_mean_pct": "Feuchte morgen", "forecast_wind_mean_ms": "Wind morgen",
+    "forecast_precip_sum_mm": "Niederschlag morgen", "forecast_sunshine_sum_h": "Sonne morgen",
+    "forecast_global_radiation_sum_j_cm2": "Globalstrahlung morgen",
+    "season_sin": "Jahreszeit (sin)", "season_cos": "Jahreszeit (cos)",
+}
+importance_df = pd.DataFrame({"feature": FEATURES, "importance": importance.importances_mean}).sort_values("importance", ascending=False)
+importance_df["label"] = importance_df["feature"].map(feature_labels)
+importance_df.to_csv(PROCESSED_DIR / "feature_importance.csv", index=False)
+
+fig, ax = plt.subplots(figsize=(9, 6))
+top = importance_df.head(10).sort_values("importance")
+ax.barh(top["label"], top["importance"], color="#4c78a8")
+ax.axvline(0, color="black", linewidth=0.8)
+ax.set(title="Welche Informationen verbessern die Folgetagsprognose?", xlabel="Abnahme des Macro-F1 bei Permutation", ylabel="")
+plt.tight_layout()
+plt.savefig(FIGURES_DIR / "07_feature_importance.png", bbox_inches="tight")
 plt.show()
 """
     ),
     md(
         r"""
-## 8. Ergebnis, Interpretation und Grenzen
+## 6. Interaktive Szenario-Prognose
 
-Die folgende Zusammenfassung wird direkt aus den berechneten Ergebnissen
-erzeugt. Dadurch können sich Zahlen bei einer bewussten Aktualisierung der
-Rohdaten ändern, ohne dass Text und Grafiken auseinanderlaufen.
+Die Regler bilden eine Wettervorhersage für morgen und die heute beobachteten
+Schadstoff-Einzelindizes ab. Das Modell liefert eine **bedingte Szenario-
+prognose**, keine amtliche Luftqualitätswarnung. Im Training wurde gemessenes
+Folgetagswetter verwendet; reale Wetterprognosefehler sind daher nicht in der
+Modellgüte enthalten.
 """
     ),
     code(
         r"""
-deu_result = results.loc[results["code"].eq("DEU")].iloc[0]
-forecast_2030 = forecast.loc[forecast["year"].eq(2030)].iloc[0]
+import ipywidgets as widgets
 
-analysis_summary = {
-    "start_year": START_YEAR,
-    "end_year": END_YEAR,
-    "country_count": len(results),
-    "decoupled_count": decoupled_count,
-    "decoupled_share": decoupled_share,
-    "trend_decoupled_count": trend_count,
-    "thesis_supported": bool(thesis_supported),
-    "germany_gdp_change_pct": float(deu_result["gdp_change_pct"]),
-    "germany_co2_change_pct": float(deu_result["co2_change_pct"]),
-    "best_forecast_model": BEST_MODEL,
-    "forecast_2030_mt": float(forecast_2030["forecast_mt"]),
-    "forecast_2030_lower_80_mt": float(forecast_2030["lower_80_mt"]),
-    "forecast_2030_upper_80_mt": float(forecast_2030["upper_80_mt"]),
-    "forecast_2030_lower_95_mt": float(forecast_2030["lower_95_mt"]),
-    "forecast_2030_upper_95_mt": float(forecast_2030["upper_95_mt"]),
-    "forecast_rmse_mt": float(model_comparison.loc[BEST_MODEL, "RMSE_Mt"]),
+
+def quantile_range(column, fallback):
+    values = model_data[column].dropna()
+    if values.empty:
+        return fallback
+    return float(values.quantile(0.01)), float(values.quantile(0.99)), float(values.median())
+
+
+slider_specs = {
+    "forecast_temp_max_c": ("Tmax morgen (°C)", -10, 42, 0.5),
+    "forecast_temp_mean_c": ("Tmittel morgen (°C)", -15, 35, 0.5),
+    "forecast_humidity_mean_pct": ("Feuchte morgen (%)", 20, 100, 1),
+    "forecast_wind_mean_ms": ("Wind morgen (m/s)", 0, 15, 0.1),
+    "forecast_precip_sum_mm": ("Regen morgen (mm)", 0, 40, 0.5),
+    "forecast_sunshine_sum_h": ("Sonne morgen (h)", 0, 16, 0.25),
+    "forecast_global_radiation_sum_j_cm2": ("Globalstrahlung (J/cm²)", 0, 3500, 25),
 }
-(PROCESSED_DIR / "analysis_summary.json").write_text(
-    json.dumps(analysis_summary, ensure_ascii=False, indent=2), encoding="utf-8"
+
+controls = {}
+for feature, (description, minimum, maximum, step) in slider_specs.items():
+    _, _, median = quantile_range(feature, (minimum, maximum, (minimum + maximum) / 2))
+    controls[feature] = widgets.FloatSlider(
+        description=description, min=minimum, max=maximum, step=step,
+        value=float(np.clip(median, minimum, maximum)), continuous_update=False,
+        style={"description_width": "180px"}, layout=widgets.Layout(width="520px"),
+    )
+
+for pollutant in POLLUTANTS:
+    feature = f"{pollutant}_score"
+    controls[feature] = widgets.FloatSlider(
+        description=f"{LABELS[pollutant]} heute", min=0, max=5, step=0.1,
+        value=float(model_data[feature].median()), continuous_update=False,
+        style={"description_width": "180px"}, layout=widgets.Layout(width="520px"),
+    )
+
+month_control = widgets.IntSlider(
+    description="Monat morgen", min=1, max=12, step=1, value=7,
+    continuous_update=False, style={"description_width": "180px"},
+    layout=widgets.Layout(width="520px"),
 )
+output = widgets.Output()
+
+
+def update_prediction(change=None):
+    month = month_control.value
+    approximate_doy = pd.Timestamp(2025, month, 15).dayofyear
+    row = {feature: control.value for feature, control in controls.items()}
+    row["season_sin"] = np.sin(2 * np.pi * approximate_doy / 365.25)
+    row["season_cos"] = np.cos(2 * np.pi * approximate_doy / 365.25)
+    scenario = pd.DataFrame([row], columns=FEATURES)
+    probabilities = best_model.predict_proba(scenario)[0]
+    classes = best_model.named_steps["model"].classes_
+    order = np.argsort(probabilities)
+    predicted = classes[order[-1]]
+    with output:
+        output.clear_output(wait=True)
+        display(Markdown(f"### Prognose: **{LABELS[predicted]}** dominiert morgen"))
+        fig, ax = plt.subplots(figsize=(8, 3.5))
+        ax.barh([LABELS[c] for c in classes[order]], probabilities[order], color=[COLORS[c] for c in classes[order]])
+        ax.set(xlim=(0, 1), xlabel="Modellwahrscheinlichkeit", ylabel="")
+        ax.xaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
+        plt.tight_layout()
+        plt.show()
+
+
+for control in [*controls.values(), month_control]:
+    control.observe(update_prediction, names="value")
+
+display(widgets.VBox([month_control, *controls.values(), output]))
+update_prediction()
+"""
+    ),
+    md(
+        r"""
+## 7. Fazit, Grenzen und Export
+
+Die Kernaussage wird direkt aus den berechneten Werten erzeugt. Wesentliche
+Grenzen bleiben: Beobachtungsdaten belegen keine Kausalität; nur ein urbaner
+Standort wird untersucht; Verkehr, Ferntransport und chemische Vorläufer sind
+nicht direkt beobachtet; die Wetterprognose wird historisch als fehlerfrei
+angenommen; seltene Dominanzklassen erschweren die Mehrklassenprognose.
+"""
+    ),
+    code(
+        r"""
+hot_composition = composition.loc["Heiße Tage"].to_dict()
+reference_composition = composition.loc["Andere warme Tage"].to_dict()
+analysis_summary = {
+    "period": f"{START_YEAR}-{END_YEAR}",
+    "hourly_air_rows": int(len(air)),
+    "hourly_merged_rows": int(len(hourly)),
+    "daily_rows": int(len(daily)),
+    "station_distance_km": distance_km,
+    "hot_threshold_c": HOT_THRESHOLD,
+    "hot_day_count": int(daily["hot_day"].sum()),
+    "o3_median_difference_ug_m3": o3_diff,
+    "o3_p_value_one_sided": float(o3_test.pvalue),
+    "no2_median_difference_ug_m3": no2_diff,
+    "no2_p_value_one_sided": float(no2_test.pvalue),
+    "thesis_supported": bool(thesis_supported),
+    "hot_day_dominant_shares": hot_composition,
+    "reference_dominant_shares": reference_composition,
+    "best_model": BEST_MODEL_NAME,
+    "test_days": int(len(y_test)),
+    "test_accuracy": float(model_comparison.loc[BEST_MODEL_NAME, "Accuracy"]),
+    "test_balanced_accuracy": float(model_comparison.loc[BEST_MODEL_NAME, "Balanced Accuracy"]),
+    "test_macro_f1": float(model_comparison.loc[BEST_MODEL_NAME, "Macro-F1"]),
+}
+(PROCESSED_DIR / "analysis_summary.json").write_text(json.dumps(analysis_summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
 display(Markdown(f'''
-### Fazit
+### Antwort auf die Forschungsfrage
 
-- **These:** {decoupled_count} von {len(results)} EU-27-Staaten ({decoupled_share:.1%}) erfüllen von {START_YEAR} bis {END_YEAR} die Endpunktdefinition. Die These wird **{'unterstützt' if thesis_supported else 'nicht unterstützt'}**.
-- **Robustheit:** Bei Betrachtung der Trends über den gesamten Zeitraum erfüllen {trend_count} Staaten die strengere Trendbedingung.
-- **Deutschland:** Das reale BIP veränderte sich um {deu_result['gdp_change_pct']:+.1f} %, die territorialen CO₂-Emissionen um {deu_result['co2_change_pct']:+.1f} %.
-- **Prognose:** Das anhand der zeitlich geordneten Validierung ausgewählte Modell „{BEST_MODEL}“ prognostiziert für 2030 rund **{forecast_2030['forecast_mt']:.0f} Mio. t CO₂**. Das empirische 80%-Fehlerband reicht von {forecast_2030['lower_80_mt']:.0f} bis {forecast_2030['upper_80_mt']:.0f} Mio. t.
+An heißen Tagen verändert sich vor allem die **Zusammensetzung** der Belastung:
+Ozon verschiebt sich um {o3_diff:+.1f} µg/m³, NO₂ um {no2_diff:+.1f} µg/m³
+gegenüber anderen warmen Tagen. Die These wird statistisch
+**{'unterstützt' if thesis_supported else 'nicht vollständig unterstützt'}**.
 
-### Einschränkungen
-
-1. Der Endpunktvergleich beweist keine Kausalität. Strukturwandel, Energiepreise, Politik und Handel werden nicht separat identifiziert.
-2. Territoriale Emissionen können durch die Verlagerung emissionsintensiver Produktion sinken; konsumbezogene Emissionen könnten ein anderes Bild zeigen.
-3. Jährliche deutsche Daten ergeben nur eine kleine Stichprobe. Das Fehlerband basiert auf historischen Prognosefehlern und ist keine Garantie.
-4. Die Prognose ist eine statistische Fortschreibung historischer Muster, kein politisches oder energiewirtschaftliches Szenario.
-5. „Big Data“ beschreibt hier die globale Rohdatensammlung, nicht eine technisch verteilte Datenverarbeitung nach Volume, Velocity und Variety.
+Für den Folgetag erreicht das Modell „{BEST_MODEL_NAME}“ auf den vollständig
+zurückgehaltenen Jahren 2024–2025 eine Accuracy von
+{model_comparison.loc[BEST_MODEL_NAME, 'Accuracy']:.1%} und einen Macro-F1 von
+{model_comparison.loc[BEST_MODEL_NAME, 'Macro-F1']:.2f}. Die Prognose ist ein
+Lernmodell für Szenarien, nicht die amtliche UBA-Prognose.
 '''))
 """
     ),
     md(
         r"""
-## 9. Quellen und KI-Nutzung
+## 8. Quellen und Dokumentation der KI-Nutzung
 
-**Daten:**
+**Amtliche Daten und Methodik**
 
-- Global Carbon Budget (2025), aufbereitet von Our World in Data:  
-  https://ourworldindata.org/grapher/annual-co2-emissions-per-country
-- Global Carbon Budget (2025) und OWID-Bevölkerungsdaten:  
-  https://ourworldindata.org/grapher/co-emissions-per-capita
-- World Development Indicators, aufbereitet von Our World in Data:  
-  https://ourworldindata.org/grapher/gdp-worldbank-constant-usd
-- Methodischer Kontext:  
-  https://ourworldindata.org/co2-and-greenhouse-gas-emissions
+- Umweltbundesamt: Luftdaten-API v4 und stündliche Messwerte der Messnetze der
+  Länder und des Bundes: https://luftdaten.umweltbundesamt.de/
+- UBA-Luftqualitätsindex und aktuelle Klassengrenzen:
+  https://www.umweltbundesamt.de/themen/luft/luftqualitaet/der-luftqualitaetsindex-lqi
+- Deutscher Wetterdienst, Climate Data Center: stündliche Stationsmessungen
+  für Temperatur/Feuchte, Wind, Sonnenschein, Niederschlag und Solarstrahlung:
+  https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/
 
-Zu jeder lokalen CSV-Datei liegt die vollständige OWID-Metadaten-JSON vor. Das
-Download-Manifest dokumentiert Abrufdatum und Prüfsumme.
+Die UBA-CSV-Zeiten wurden von MEZ/MESZ nach UTC konvertiert; DWD-Zeiten liegen
+in UTC vor. Rohdateien, URLs, Abrufzeit und SHA-256-Prüfsummen stehen in
+`data/raw/download_manifest.json`.
 
-**KI-Nutzung:** Generative KI unterstützte Projektstruktur, Codeentwurf,
-Methodenvergleich und Präsentationsaufbau. KI-Ausgaben wurden nicht als Quelle
-verwendet. Definitionen wurden mit den OWID-Metadaten abgeglichen, alle Zahlen
-werden im Notebook reproduziert und die Modellwahl erfolgt anhand gemessener
-Out-of-Sample-Fehler. Details stehen in `KI_NUTZUNG.md`.
+**KI-Nutzung**
+
+Generative KI unterstützte Projektstruktur, Codeentwurf, Modellvergleich,
+Visualisierungen und Präsentation. KI-Ausgaben wurden nicht als Datenquelle
+verwendet. Die Ergebnisse entstehen reproduzierbar aus amtlichen Daten; die
+Modellwahl basiert auf einem zeitlich getrennten Test. Das vollständige
+Einsatzprotokoll und die menschlichen Kontrollschritte stehen in
+`KI_NUTZUNG.md`.
 """
     ),
 ]
 
 notebook = nbf.v4.new_notebook(cells=cells)
 notebook["metadata"] = {
-    "kernelspec": {
-        "display_name": "Python 3",
-        "language": "python",
-        "name": "python3",
-    },
+    "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
     "language_info": {"name": "python", "version": "3.12"},
 }
 

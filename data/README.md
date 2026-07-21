@@ -2,38 +2,39 @@
 
 ## Rohdaten
 
-Die Dateien in `raw/` werden unverändert von Our World in Data (OWID)
-heruntergeladen. Zu jeder CSV-Datei wird die zugehörige Metadaten-JSON
-gespeichert. `raw/download_manifest.json` dokumentiert URL, Abrufzeitpunkt,
-Dateigröße und SHA-256-Prüfsumme.
+`raw/` enthält unveränderte amtliche Dateien für 2016–2025:
 
-Verwendete Reihen:
+- zehn jährliche CSV-Dateien der UBA-Luftdaten-API v4 für die Station
+  **DEBB021 Potsdam-Zentrum**;
+- DWD-ZIP-Dateien der Station **03987 Potsdam** für stündliche Temperatur und
+  Feuchte, Wind, Niederschlag, Sonnenscheindauer und Solarstrahlung.
 
-- `co-emissions-per-capita`: territoriale CO₂-Emissionen pro Kopf
-- `annual-co2-emissions-per-country`: territoriale CO₂-Gesamtemissionen
-- `gdp-worldbank-constant-usd`: reales Gesamt-BIP in konstanten US-Dollar
+`raw/download_manifest.json` hält Quell-URL, Abrufzeit, Dateigröße und
+SHA-256-Prüfsumme fest. Die Rohdateien werden im Notebook nicht verändert.
 
-CO₂ umfasst fossile Brennstoffe und industrielle Prozesse, schließt
-Landnutzungsänderungen aus und ordnet internationale Luftfahrt und Schifffahrt
-keinem einzelnen Staat zu. Das BIP ist inflationsbereinigt. Für die These werden
-nur Veränderungen innerhalb eines Landes betrachtet; Wechselkurseffekte und
-Preisniveauvergleiche zwischen Ländern sind daher nicht Gegenstand der Analyse.
+## Zusammenführung
+
+Die Luftqualitätsstation liegt rund 2,3 km von der Wetterstation entfernt. Nach
+dieser räumlichen Zuordnung werden die Reihen stündlich verbunden. UBA-CSV-
+Zeitstempel liegen in MEZ/MESZ vor und werden nach UTC konvertiert; DWD-
+Zeitstempel liegen in UTC vor. Für die Analyse folgt eine Aggregation auf
+lokale Kalendertage.
 
 ## Verarbeitete Daten
 
-Das Notebook erzeugt reproduzierbar:
+- `processed/potsdam_daily_air_weather.csv`: tägliches Analysepanel
+- `processed/model_comparison.csv`: Testmetriken 2024–2025
+- `processed/feature_importance.csv`: Permutationswichtigkeit
+- `processed/analysis_summary.json`: zentrale reproduzierte Ergebnisse
 
-- `processed/eu27_panel.csv`
-- `processed/decoupling_results.csv`
-- `processed/germany_forecast_2030.csv`
-- `processed/forecast_model_comparison.csv`
+## Quellen und Lizenzen
 
-Die Rohdaten werden nie überschrieben.
+- Umweltbundesamt mit Daten der Messnetze der Länder und des Bundes:
+  https://luftdaten.umweltbundesamt.de/
+- Deutscher Wetterdienst, Climate Data Center (CC BY 4.0):
+  https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/
+- UBA-Luftqualitätsindex:
+  https://www.umweltbundesamt.de/themen/luft/luftqualitaet/der-luftqualitaetsindex-lqi
 
-## Quellen
-
-- https://ourworldindata.org/grapher/co-emissions-per-capita
-- https://ourworldindata.org/grapher/annual-co2-emissions-per-country
-- https://ourworldindata.org/grapher/gdp-worldbank-constant-usd
-- https://ourworldindata.org/co2-and-greenhouse-gas-emissions
-
+Hinweis: Daten des laufenden Jahres können beim UBA vorläufig sein. Der lokale
+Stand ist über das Manifest nachvollziehbar.
