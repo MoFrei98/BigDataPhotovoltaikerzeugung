@@ -13,12 +13,15 @@ Abgabe und die Interpretation liegt beim Verfasser.
 | Datum | System | Einsatz | Ergebnis und menschliche Kontrolle |
 |---|---|---|---|
 | 21.07.2026 | OpenAI Codex | Umstellung des bisherigen Projekts auf Hitze und Luftqualität | Forschungsfrage, überprüfbare These und Folgetagsziel in die Projektstruktur übertragen. |
-| 21.07.2026 | OpenAI Codex | Recherche der amtlichen Schnittstellen | UBA-API-v4-Dokumentation und DWD-CDC-Verzeichnisse geprüft; Potsdam-Stationen anhand Messumfang und Distanz ausgewählt. |
+| 21.07.2026 | OpenAI Codex | Recherche der amtlichen Schnittstellen | Zunächst Potsdam-Stationen ausgewählt; diese Vorstufe wurde am 22.07.2026 aufgrund der geänderten Ortsvorgabe vollständig durch Frankfurt ersetzt. |
 | 21.07.2026 | OpenAI Codex | Codeentwurf für Download, Zeitzonenbereinigung und Join | URLs und Prüfsummen werden im Manifest festgehalten; Zeitstempel und Stationsdistanz werden im Notebook sichtbar kontrolliert. |
 | 21.07.2026 | OpenAI Codex | Operationalisierung des dominierenden Schadstoffs | Aktuelle UBA-LQI-Grenzen als gemeinsame gesundheitliche Skala verwendet; Definition und rückwirkende Re-Klassifikation werden offengelegt. |
 | 21.07.2026 | OpenAI Codex | Hypothesentest und Visualisierungen | Einseitige Tests und Bootstrap-Intervalle implementiert; Ergebnis nicht an die Ausgangsthese angepasst. Der NO₂-Teil wird als nicht bestätigt ausgewiesen. |
 | 21.07.2026 | OpenAI Codex | Vergleich von Prognosemodellen | Baseline, logistische Regression und Random Forest auf den zurückgehaltenen Jahren 2024–2025 verglichen; Auswahl nach gemessenem Macro-F1. |
 | 21.07.2026 | OpenAI Codex | Slider-Oberfläche und Präsentationsaufbau | Szenarioeingaben mit denselben Modellmerkmalen verbunden; Aussagen der Folien aus exportierten Notebook-Ergebnissen übernommen. |
+| 22.07.2026 | OpenAI Codex | Umstellung der Fallstudie auf Frankfurt am Main | HLNUG-Station DEHE005 Frankfurt-Höchst und DWD-Station 01420 Frankfurt/Main ausgewählt; Distanz und Messumfang kontrolliert. |
+| 22.07.2026 | OpenAI Codex | Reparatur und Vollständigkeitskontrolle des Datenabrufs | Nach Ausfall der UBA-Route den offiziellen HLNUG-Zugang verwendet; die 1.100-Zeilen-Grenze erkannt und durch dokumentierte Monatsabfragen behoben. |
+| 22.07.2026 | OpenAI Codex | Neuberechnung und Ergebnisprüfung | Notebook vollständig ausgeführt; unerwarteten positiven NO₂-Unterschied beibehalten und These als nicht vollständig unterstützt ausgewiesen. |
 
 ## Beispiel des zentralen KI-Arbeitsauftrags
 
@@ -30,7 +33,7 @@ Abgabe und die Interpretation liegt beim Verfasser.
 
 ## Kontrollmaßnahmen
 
-- KI-Aussagen werden nicht als Quelle zitiert; maßgeblich sind UBA und DWD.
+- KI-Aussagen werden nicht als Quelle zitiert; maßgeblich sind HLNUG, UBA-LQI-Methodik und DWD.
 - Jede Rohdatei besitzt eine URL und SHA-256-Prüfsumme im Manifest.
 - Die Distanz und die unterschiedlichen Zeitzonen der Messstationen sind im
   Notebook explizit dokumentiert.

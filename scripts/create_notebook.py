@@ -22,7 +22,7 @@ cells = [
         r"""
 # Einfluss hoher Temperaturen auf die städtische Luftqualität
 
-## Fallstudie Potsdam 2016–2025 und Prognose des dominierenden Schadstoffs
+## Fallstudie Frankfurt am Main 2016–2025 und Prognose des dominierenden Schadstoffs
 
 **Forschungsfrage:** Verschlechtert Hitze die Luftqualität insgesamt, oder
 verändert sie vor allem die Zusammensetzung der Luftschadstoffe?
@@ -44,7 +44,7 @@ und SO₂ trotz unterschiedlicher Konzentrationsskalen vergleichbar.
 ## 1. Setup und Datenstand
 
 Die Rohdaten sind lokal eingefroren. `scripts/download_data.py` lädt zehn
-Jahresdateien des Umweltbundesamtes sowie fünf stündliche DWD-Reihen. Zufällige
+Jahresdateien des HLNUG sowie fünf stündliche DWD-Reihen. Zufällige
 Verfahren verwenden einen festen Startwert; Rohdaten werden nie überschrieben.
 """
     ),
@@ -95,7 +95,7 @@ for directory in (PROCESSED_DIR, FIGURES_DIR, MODELS_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
 START_YEAR, END_YEAR = 2016, 2025
-UBA_STATION, DWD_STATION = "DEBB021", "03987"
+AIR_STATION, DWD_STATION = "DEHE005", "01420"
 POLLUTANTS = ["O3", "NO2", "PM10", "PM2.5", "SO2"]
 LABELS = {
     "O3": "Ozon (O₃)", "NO2": "Stickstoffdioxid (NO₂)",
@@ -105,7 +105,12 @@ LABELS = {
 COLORS = {"O3": "#d95f02", "NO2": "#1f78b4", "PM10": "#7570b3", "PM2.5": "#66a61e", "SO2": "#666666"}
 
 sns.set_theme(style="whitegrid", context="notebook")
-plt.rcParams.update({"figure.dpi": 120, "savefig.dpi": 180, "axes.titlesize": 14})
+plt.rcParams.update({
+    "font.family": "DejaVu Sans",
+    "figure.dpi": 120,
+    "savefig.dpi": 180,
+    "axes.titlesize": 14,
+})
 
 manifest = json.loads((RAW_DIR / "download_manifest.json").read_text(encoding="utf-8"))
 display(pd.DataFrame(manifest["stations"]).T)
@@ -116,55 +121,34 @@ print(f"Eingefrorene Rohdaten: {sum(item['bytes'] for item in manifest['files'])
         r"""
 ## 2. Daten laden, Zeitstempel vereinheitlichen und räumlich zuordnen
 
-- **Luftqualität:** UBA-Station Potsdam-Zentrum (DEBB021), städtischer Hintergrund.
-- **Wetter:** DWD-Station Potsdam (03987), rund 2,3 km entfernt.
-- **Zeit:** UBA-CSV liegt in MEZ/MESZ vor, DWD in UTC. Beide Quellen werden
-  auf UTC normalisiert und anschließend stündlich verbunden.
+- **Luftqualität:** HLNUG-Station Frankfurt-Höchst (DEHE005), städtischer Hintergrund.
+- **Wetter:** DWD-Station Frankfurt/Main (01420), rund 8,6 km entfernt.
+- **Zeit:** Die HLNUG-Schnittstelle wird mit UTC-Ausgabe abgefragt; auch die
+  DWD-Reihen liegen in UTC vor. Anschließend werden beide Quellen stündlich verbunden.
 - **Ort:** Die räumlich nahe DWD-Station wird einmalig über Koordinaten
   zugeordnet; anschließend erfolgt der Join über den Stundenzeitstempel.
 
-UBA-Werte des laufenden Jahres können vorläufig sein. Der hier verwendete
-Zeitraum endet 2025; der genaue Abruf und jede Prüfsumme stehen im Manifest.
+Der hier verwendete Zeitraum endet 2025; der genaue Abruf und jede Prüfsumme
+stehen im Manifest.
 """
     ),
     code(
         r"""
-def parse_uba_timestamp(values: pd.Series) -> pd.Series:
-    cleaned = values.astype(str).str.strip("'\"")
-    extracted = cleaned.str.extract(r"(?P<date>\d{4}-\d{2}-\d{2}) (?P<hour>\d{2}):00")
-    naive = pd.to_datetime(extracted["date"], errors="coerce") + pd.to_timedelta(
-        pd.to_numeric(extracted["hour"], errors="coerce"), unit="h"
-    )
-    localized = pd.DatetimeIndex(naive).tz_localize(
-        "Europe/Berlin", ambiguous="NaT", nonexistent="shift_forward"
-    )
-    return pd.Series(localized.tz_convert("UTC").tz_localize(None), index=values.index)
-
-
-def load_uba() -> pd.DataFrame:
+def load_hlnug() -> pd.DataFrame:
+    parameter_map = {"15": "O3", "14": "NO2", "44": "PM10", "83": "PM2.5", "18": "SO2"}
     frames = []
-    for path in sorted(RAW_DIR.glob(f"uba_airquality_{UBA_STATION}_*.csv")):
-        frame = pd.read_csv(path, sep=";", encoding="utf-8-sig", on_bad_lines="skip")
-        frame.columns = [str(column).strip() for column in frame.columns]
-        date_column = next(column for column in frame if column.lower() == "date")
-        rename = {date_column: "raw_timestamp"}
-        for column in frame.columns:
-            plain = column.lower()
-            if "ozone" in plain:
-                rename[column] = "O3"
-            elif "nitrogen dioxide" in plain:
-                rename[column] = "NO2"
-            elif "pm₁₀" in plain or "pm10" in plain:
-                rename[column] = "PM10"
-            elif "pm₂,₅" in plain or "pm2.5" in plain or "pm25" in plain:
-                rename[column] = "PM2.5"
-            elif "sulphur dioxide" in plain or "sulfur dioxide" in plain:
-                rename[column] = "SO2"
-        frame = frame.rename(columns=rename)
-        frame["timestamp_utc"] = parse_uba_timestamp(frame["raw_timestamp"])
+    for path in sorted(RAW_DIR.glob(f"hlnug_airquality_{AIR_STATION}_*.json")):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        frame = pd.DataFrame.from_dict(payload.get("data", {}), orient="index")
+        frame = frame.rename(columns=parameter_map)
+        frame["timestamp_utc"] = pd.to_datetime(
+            pd.to_numeric(frame.index, errors="coerce"), unit="s", utc=True
+        ).tz_localize(None)
         for pollutant in POLLUTANTS:
             frame[pollutant] = pd.to_numeric(frame.get(pollutant), errors="coerce")
         frames.append(frame[["timestamp_utc", *POLLUTANTS]])
+    if not frames:
+        raise FileNotFoundError("Keine HLNUG-Jahresdateien gefunden. Zuerst scripts/download_data.py ausführen.")
     result = pd.concat(frames, ignore_index=True).dropna(subset=["timestamp_utc"])
     return result.groupby("timestamp_utc", as_index=False)[POLLUTANTS].mean()
 
@@ -210,14 +194,14 @@ weather = weather_frames[0]
 for frame in weather_frames[1:]:
     weather = weather.merge(frame, on="timestamp_utc", how="outer", validate="one_to_one")
 
-air = load_uba()
+air = load_hlnug()
 hourly = air.merge(weather, on="timestamp_utc", how="left", validate="one_to_one")
 hourly = hourly.loc[hourly["timestamp_utc"].dt.year.between(START_YEAR, END_YEAR)].sort_values("timestamp_utc")
 
 distance_km = 2 * 6371 * math.asin(math.sqrt(
-    math.sin(math.radians(52.401956 - 52.3812) / 2) ** 2
-    + math.cos(math.radians(52.401956)) * math.cos(math.radians(52.3812))
-    * math.sin(math.radians(13.063989 - 13.0622) / 2) ** 2
+    math.sin(math.radians(50.10175 - 50.0259) / 2) ** 2
+    + math.cos(math.radians(50.10175)) * math.cos(math.radians(50.0259))
+    * math.sin(math.radians(8.542517 - 8.5213) / 2) ** 2
 ))
 print(f"Räumliche Distanz der Stationen: {distance_km:.2f} km")
 print(f"Stündliche Luftqualitätszeilen: {len(air):,}; verbundene Zeilen: {len(hourly):,}")
@@ -233,7 +217,7 @@ am Folgetag“ Tageskonzepte sind. Schadstoffe werden als tägliches Maximum der
 Stundenwerte bewertet. Meteorologische Größen werden je nach Bedeutung als
 Maximum, Mittel oder Summe aggregiert.
 
-Die aktuellen UBA-LQI-Klassengrenzen werden rückwirkend auf alle Jahre
+Die aktuellen UBA-LQI-Klassengrenzen werden auf die HLNUG-Messwerte aller Jahre
 angewandt. Das ist eine bewusste Re-Klassifikation für eine einheitliche
 gesundheitliche Skala und keine Behauptung über damals veröffentlichte Indexwerte.
 """
@@ -283,7 +267,7 @@ daily["dominant_pollutant"] = daily[score_columns].idxmax(axis=1).str.replace("_
 daily["dominant_score"] = daily[score_columns].max(axis=1)
 daily["month"] = daily.index.month
 daily["year"] = daily.index.year
-daily.to_csv(PROCESSED_DIR / "potsdam_daily_air_weather.csv", index_label="date")
+daily.to_csv(PROCESSED_DIR / "frankfurt_daily_air_weather.csv", index_label="date")
 
 quality = pd.DataFrame({
     "Variable": [*POLLUTANTS, "Temperatur", "Wind", "Niederschlag", "Sonne", "Globalstrahlung"],
@@ -325,7 +309,7 @@ warm = daily["month"].between(5, 9) & daily["temp_max_c"].notna()
 HOT_THRESHOLD = float(daily.loc[warm, "temp_max_c"].quantile(0.90))
 daily["hot_day"] = warm & daily["temp_max_c"].ge(HOT_THRESHOLD)
 reference = warm & ~daily["hot_day"]
-daily.to_csv(PROCESSED_DIR / "potsdam_daily_air_weather.csv", index_label="date")
+daily.to_csv(PROCESSED_DIR / "frankfurt_daily_air_weather.csv", index_label="date")
 
 
 def bootstrap_median_difference(hot_values: pd.Series, ref_values: pd.Series, n=5000):
@@ -464,7 +448,7 @@ models = {
         ("imputer", SimpleImputer(strategy="median")),
         ("model", RandomForestClassifier(
             n_estimators=500, min_samples_leaf=3, max_features="sqrt",
-            class_weight="balanced_subsample", random_state=RANDOM_STATE, n_jobs=-1,
+            class_weight="balanced_subsample", random_state=RANDOM_STATE, n_jobs=1,
         )),
     ]),
 }
@@ -518,7 +502,7 @@ plt.show()
 
 importance = permutation_importance(
     best_model, X_test, y_test, scoring="f1_macro", n_repeats=15,
-    random_state=RANDOM_STATE, n_jobs=-1,
+    random_state=RANDOM_STATE, n_jobs=1,
 )
 feature_labels = {
     **{f"{p}_score": f"heutiger {LABELS[p]}-Index" for p in POLLUTANTS},
@@ -689,15 +673,16 @@ Lernmodell für Szenarien, nicht die amtliche UBA-Prognose.
 
 **Amtliche Daten und Methodik**
 
-- Umweltbundesamt: Luftdaten-API v4 und stündliche Messwerte der Messnetze der
-  Länder und des Bundes: https://luftdaten.umweltbundesamt.de/
+- Hessisches Landesamt für Naturschutz, Umwelt und Geologie (HLNUG):
+  Messdatenportal und Station Frankfurt-Höchst (DEHE005):
+  https://www.hlnug.de/messwerte/datenportal/messstelle/2/1/0617/6/1/1748048400
 - UBA-Luftqualitätsindex und aktuelle Klassengrenzen:
   https://www.umweltbundesamt.de/themen/luft/luftqualitaet/der-luftqualitaetsindex-lqi
 - Deutscher Wetterdienst, Climate Data Center: stündliche Stationsmessungen
   für Temperatur/Feuchte, Wind, Sonnenschein, Niederschlag und Solarstrahlung:
   https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/
 
-Die UBA-CSV-Zeiten wurden von MEZ/MESZ nach UTC konvertiert; DWD-Zeiten liegen
+Die HLNUG-Daten wurden bereits in UTC abgefragt; DWD-Zeiten liegen ebenfalls
 in UTC vor. Rohdateien, URLs, Abrufzeit und SHA-256-Prüfsummen stehen in
 `data/raw/download_manifest.json`.
 

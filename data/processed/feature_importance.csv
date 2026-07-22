@@ -1,15 +1,15 @@
 feature,importance,label
-forecast_temp_max_c,0.16102852982170024,Tmax morgen
-forecast_humidity_mean_pct,0.11050845044382894,Feuchte morgen
-PM2.5_score,0.10015052908651922,"heutiger Feinstaub (PM₂,₅)-Index"
-forecast_temp_mean_c,0.09734015309343831,Tmittel morgen
-forecast_global_radiation_sum_j_cm2,0.09012173471965983,Globalstrahlung morgen
-PM10_score,0.06699479201183851,heutiger Feinstaub (PM₁₀)-Index
-forecast_wind_mean_ms,0.040239630654531976,Wind morgen
-forecast_sunshine_sum_h,0.025593066906555398,Sonne morgen
-NO2_score,0.021841121514883696,heutiger Stickstoffdioxid (NO₂)-Index
-season_cos,0.01594913111195025,Jahreszeit (cos)
-O3_score,0.013095231642126292,heutiger Ozon (O₃)-Index
-forecast_precip_sum_mm,0.007127115161557122,Niederschlag morgen
-SO2_score,0.0069171634206052135,heutiger Schwefeldioxid (SO₂)-Index
-season_sin,0.006739274050016879,Jahreszeit (sin)
+PM2.5_score,0.07330677720378012,"heutiger Feinstaub (PM₂,₅)-Index"
+season_cos,0.059224416713433266,Jahreszeit (cos)
+forecast_temp_mean_c,0.040923530420745785,Tmittel morgen
+O3_score,0.029562530295586233,heutiger Ozon (O₃)-Index
+forecast_humidity_mean_pct,0.025909956623014357,Feuchte morgen
+forecast_temp_max_c,0.023426688008489894,Tmax morgen
+NO2_score,0.014225489111995622,heutiger Stickstoffdioxid (NO₂)-Index
+forecast_sunshine_sum_h,0.01272837999532171,Sonne morgen
+PM10_score,0.010169953793541141,heutiger Feinstaub (PM₁₀)-Index
+forecast_precip_sum_mm,0.003594222224249484,Niederschlag morgen
+SO2_score,0.0028344092648288337,heutiger Schwefeldioxid (SO₂)-Index
+forecast_wind_mean_ms,0.0017229438796963592,Wind morgen
+season_sin,0.0005814366849079507,Jahreszeit (sin)
+forecast_global_radiation_sum_j_cm2,-0.005350023160399512,Globalstrahlung morgen

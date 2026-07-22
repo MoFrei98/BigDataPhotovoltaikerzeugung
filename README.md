@@ -1,9 +1,9 @@
 # Hitze und städtische Luftqualität
 
-Dieses Projekt untersucht für Potsdam (2016–2025), ob hohe Temperaturen die
+Dieses Projekt untersucht für Frankfurt am Main (2016–2025), ob hohe Temperaturen die
 Luftqualität insgesamt verschlechtern oder vor allem den dominierenden
-Luftschadstoff verändern. Stündliche Messwerte von Umweltbundesamt und
-Deutschem Wetterdienst werden über Zeit und räumlich benachbarte Stationen
+Luftschadstoff verändern. Stündliche Messwerte von HLNUG und Deutschem
+Wetterdienst werden über Zeit und räumlich benachbarte Stationen
 verbunden.
 
 ## Forschungsfrage und These
@@ -15,9 +15,9 @@ verbunden.
 die Stickstoffdioxidbelastung gleichzeitig sinken kann. Dadurch verändert sich
 an heißen Tagen der dominierende Luftschadstoff.
 
-Die Auswertung bestätigt den starken Ozonanstieg. Für NO₂ sinkt im gewählten
-Datensatz zwar der Anteil als dominierender Schadstoff, nicht aber die absolute
-Tageskonzentration. Die These wird deshalb nur teilweise unterstützt.
+Die Auswertung bestätigt den starken Ozonanstieg. Bei NO₂ zeigt Frankfurt-Höchst
+jedoch ebenfalls höhere Tagesmaxima an heißen Tagen. Die These wird deshalb nur
+teilweise unterstützt.
 
 ## Prognoseziel
 
@@ -29,19 +29,19 @@ Belastungsszenarien.
 
 ## Daten
 
-- UBA-Luftdaten-API v4: Station DEBB021 Potsdam-Zentrum
-- DWD Climate Data Center: Station 03987 Potsdam
+- HLNUG-Messdatenportal: Station DEHE005 Frankfurt-Höchst
+- DWD Climate Data Center: Station 01420 Frankfurt/Main
 - Zeitraum: 2016–2025
 - Wettermerkmale: Temperatur, Feuchte, Wind, Niederschlag, Sonnenscheindauer,
   Global- und Diffusstrahlung
-- Verbindungslogik: UBA-Zeit von MEZ/MESZ nach UTC, DWD-Zeit in UTC; räumliche
-  Stationsdistanz rund 2,3 km
+- Verbindungslogik: HLNUG- und DWD-Zeit in UTC; räumliche Stationsdistanz
+  rund 8,6 km
 
 ## Projektstruktur
 
 ```text
 notebooks/      ausgeführtes Jupyter-Notebook mit Slider-Prognose
-data/raw/       unveränderte UBA-CSV- und DWD-ZIP-Dateien plus Manifest
+data/raw/       jährliche HLNUG-JSON- und unveränderte DWD-ZIP-Dateien plus Manifest
 data/processed/ Tagespanel, Modellvergleich, Merkmalswichtigkeit, Ergebnis-JSON
 figures/        reproduzierbare Abbildungen
 models/         gespeichertes Prognosemodell
