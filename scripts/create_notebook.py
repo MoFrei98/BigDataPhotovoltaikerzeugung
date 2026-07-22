@@ -98,9 +98,9 @@ START_YEAR, END_YEAR = 2016, 2025
 AIR_STATION, DWD_STATION = "DEHE005", "01420"
 POLLUTANTS = ["O3", "NO2", "PM10", "PM2.5", "SO2"]
 LABELS = {
-    "O3": "Ozon (O₃)", "NO2": "Stickstoffdioxid (NO₂)",
-    "PM10": "Feinstaub (PM₁₀)", "PM2.5": "Feinstaub (PM₂,₅)",
-    "SO2": "Schwefeldioxid (SO₂)",
+    "O3": "Ozon (O$_3$)", "NO2": "Stickstoffdioxid (NO$_2$)",
+    "PM10": "Feinstaub (PM$_{10}$)", "PM2.5": "Feinstaub (PM$_{2,5}$)",
+    "SO2": "Schwefeldioxid (SO$_2$)",
 }
 COLORS = {"O3": "#d95f02", "NO2": "#1f78b4", "PM10": "#7570b3", "PM2.5": "#66a61e", "SO2": "#666666"}
 
@@ -263,8 +263,15 @@ for pollutant in POLLUTANTS:
 
 daily = hourly.groupby("date").agg(**aggregations).sort_index()
 score_columns = [f"{pollutant}_score" for pollutant in POLLUTANTS]
-daily["dominant_pollutant"] = daily[score_columns].idxmax(axis=1).str.replace("_score", "", regex=False)
-daily["dominant_score"] = daily[score_columns].max(axis=1)
+score_frame = daily[score_columns]
+valid_score_rows = score_frame.notna().any(axis=1)
+daily["dominant_pollutant"] = pd.Series(pd.NA, index=daily.index, dtype="string")
+daily.loc[valid_score_rows, "dominant_pollutant"] = (
+    score_frame.loc[valid_score_rows]
+    .idxmax(axis=1)
+    .str.replace("_score", "", regex=False)
+)
+daily["dominant_score"] = score_frame.max(axis=1)
 daily["month"] = daily.index.month
 daily["year"] = daily.index.year
 daily.to_csv(PROCESSED_DIR / "frankfurt_daily_air_weather.csv", index_label="date")
@@ -348,10 +355,10 @@ fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 sample = daily.loc[warm].copy()
 sns.regplot(data=sample, x="temp_max_c", y="O3_max", scatter_kws={"s": 16, "alpha": 0.35}, line_kws={"color": COLORS["O3"]}, ax=axes[0])
 axes[0].axvline(HOT_THRESHOLD, color="#555555", linestyle="--", linewidth=1)
-axes[0].set(title="Ozon steigt mit hohen Tagesmaxima", xlabel="Tageshöchsttemperatur (°C)", ylabel="O₃-Tagesmaximum (µg/m³)")
+axes[0].set(title="Ozon steigt mit hohen Tagesmaxima", xlabel="Tageshöchsttemperatur (°C)", ylabel="O$_3$-Tagesmaximum (µg/m³)")
 sns.regplot(data=sample, x="temp_max_c", y="NO2_max", scatter_kws={"s": 16, "alpha": 0.35}, line_kws={"color": COLORS["NO2"]}, ax=axes[1])
 axes[1].axvline(HOT_THRESHOLD, color="#555555", linestyle="--", linewidth=1)
-axes[1].set(title="NO₂ reagiert anders als Ozon", xlabel="Tageshöchsttemperatur (°C)", ylabel="NO₂-Tagesmaximum (µg/m³)")
+axes[1].set(title="NO$_2$ reagiert anders als Ozon", xlabel="Tageshöchsttemperatur (°C)", ylabel="NO$_2$-Tagesmaximum (µg/m³)")
 plt.tight_layout()
 plt.savefig(FIGURES_DIR / "02_temperature_o3_no2.png", bbox_inches="tight")
 plt.show()
