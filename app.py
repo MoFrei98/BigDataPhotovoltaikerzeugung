@@ -1,4 +1,4 @@
-"""PV Weather Predictor Germany – Streamlit application."""
+"""Photovoltaikeffizienz Rechner – Streamlit application."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from pv_weather import (  # noqa: E402
 
 
 st.set_page_config(
-    page_title="PV Weather Predictor Germany",
+    page_title="Photovoltaikeffizienz Rechner",
     page_icon="☀️",
     layout="wide",
 )
@@ -35,7 +35,7 @@ st.markdown(
     .stApp {background:
       radial-gradient(circle at 92% 3%, rgba(255,190,51,.23), transparent 27rem),
       linear-gradient(180deg, #FBFAF5 0%, #F2F6F2 100%);}
-    .block-container {padding-top:2.2rem; max-width:1240px;}
+    .block-container {padding-top:4.25rem; max-width:1240px;}
     .eyebrow {letter-spacing:.14em; text-transform:uppercase; color:#567064;
       font-size:.78rem; font-weight:750; margin-bottom:.5rem;}
     .hero-title {font-size:clamp(2.35rem,5vw,4.7rem); line-height:.95;
@@ -80,7 +80,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.markdown(
-    '<div class="hero-title">PV Weather<br>Predictor Germany</div>',
+    '<div class="hero-title">Photovoltaikeffizienz<br>Rechner</div>',
     unsafe_allow_html=True,
 )
 st.markdown(
@@ -163,6 +163,89 @@ def percent(value: float, digits: int = 1) -> str:
     return f"{value * 100:.{digits}f} %".replace(".", ",")
 
 
+def prediction_chart(predicted: float, lower: float, upper: float) -> alt.LayerChart:
+    """Visualise the prediction and its interval on a compact 0–100 % scale."""
+    predicted_pct = float(np.clip(predicted * 100, 0, 100))
+    lower_pct = float(np.clip(lower * 100, 0, 100))
+    upper_pct = float(np.clip(upper * 100, 0, 100))
+
+    bands = pd.DataFrame(
+        {
+            "Start": [0, 20, 50],
+            "Ende": [20, 50, 100],
+            "Bereich": ["Niedrig", "Mittel", "Hoch"],
+        }
+    )
+    interval = pd.DataFrame({"Start": [lower_pct], "Ende": [upper_pct]})
+    point = pd.DataFrame(
+        {
+            "Prognose": [predicted_pct],
+            "Beschriftung": [f"{predicted_pct:.1f} %".replace(".", ",")],
+        }
+    )
+
+    x_scale = alt.Scale(domain=[0, 100], nice=False)
+    background = (
+        alt.Chart(bands)
+        .mark_bar(size=28, cornerRadius=7)
+        .encode(
+            x=alt.X(
+                "Start:Q",
+                scale=x_scale,
+                title="Normierte PV-Erzeugung (%)",
+                axis=alt.Axis(values=[0, 20, 40, 60, 80, 100], grid=False),
+            ),
+            x2="Ende:Q",
+            y=alt.value(52),
+            color=alt.Color(
+                "Bereich:N",
+                scale=alt.Scale(
+                    domain=["Niedrig", "Mittel", "Hoch"],
+                    range=["#E9EEEB", "#DDE9E2", "#CDE5D6"],
+                ),
+                legend=None,
+            ),
+            tooltip=[
+                "Bereich:N",
+                alt.Tooltip("Start:Q", format=".0f"),
+                alt.Tooltip("Ende:Q", format=".0f"),
+            ],
+        )
+    )
+    uncertainty = (
+        alt.Chart(interval)
+        .mark_rule(color="#E19A18", strokeWidth=7, strokeCap="round")
+        .encode(
+            x=alt.X("Start:Q", scale=x_scale),
+            x2="Ende:Q",
+            y=alt.value(52),
+            tooltip=[
+                alt.Tooltip("Start:Q", title="Untere Grenze", format=".1f"),
+                alt.Tooltip("Ende:Q", title="Obere Grenze", format=".1f"),
+            ],
+        )
+    )
+    marker = (
+        alt.Chart(point)
+        .mark_point(color="#173C34", filled=True, shape="diamond", size=230)
+        .encode(
+            x=alt.X("Prognose:Q", scale=x_scale),
+            y=alt.value(52),
+            tooltip=[alt.Tooltip("Prognose:Q", title="Prognose", format=".1f")],
+        )
+    )
+    label = (
+        alt.Chart(point)
+        .mark_text(color="#173C34", dy=-25, fontSize=14, fontWeight="bold")
+        .encode(
+            x=alt.X("Prognose:Q", scale=x_scale),
+            y=alt.value(52),
+            text="Beschriftung:N",
+        )
+    )
+    return (background + uncertainty + marker + label).properties(height=105)
+
+
 optimal_rows = featured.nlargest(max(50, int(len(featured) * 0.02)), TARGET)
 optimal_defaults = {
     column: float(optimal_rows[column].median())
@@ -218,15 +301,27 @@ with tab_prediction:
 
     with output:
         st.markdown("##### Modellergebnis")
+        lower, upper = float(prediction["lower_80"]), float(prediction["upper_80"])
         st.metric(
             "Prognostizierte normierte PV-Erzeugung",
             percent(predicted_yield),
             yield_level(predicted_yield).upper(),
         )
-        lower, upper = float(prediction["lower_80"]), float(prediction["upper_80"])
+        st.altair_chart(
+            prediction_chart(predicted_yield, lower, upper),
+            width="stretch",
+        )
+        st.caption(
+            "Der dunkle Marker zeigt die Prognose, die orange Linie das empirische "
+            "80-%-Intervall."
+        )
         a, b = st.columns(2)
-        a.metric("Empirisches 80%-Intervall", f"{percent(lower)} bis {percent(upper)}")
-        b.metric("Geschätzte Modultemperatur", f"{module_temperature:.1f} °C")
+        interval_label = f"{lower * 100:.1f}–{upper * 100:.1f} %".replace(".", ",")
+        a.metric("Empirisches 80%-Intervall", interval_label)
+        b.metric(
+            "Geschätzte Modultemperatur",
+            f"{module_temperature:.1f} °C".replace(".", ","),
+        )
         average_power_mw = predicted_yield * installed_capacity
         st.metric(
             "Geschätzte Erzeugung bei gewählter Leistung",
@@ -515,6 +610,6 @@ with tab_method:
 
 st.divider()
 st.caption(
-    "PV Weather Predictor Germany · Forschungsprototyp, keine Ertragsgarantie · "
+    "Photovoltaikeffizienz Rechner · Forschungsprototyp, keine Ertragsgarantie · "
     "SMARD-Namensnennung bei Realdaten: Bundesnetzagentur | SMARD.de"
 )
