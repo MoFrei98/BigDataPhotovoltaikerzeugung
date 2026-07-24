@@ -1,8 +1,8 @@
 # Runtime dependencies for the Streamlit app.
 # Keep this file Linux-compatible; development and notebook tools do not belong
 # in the Streamlit Community Cloud deployment environment.
-streamlit>=1.40,<2
-altair>=5.4,<6
+streamlit>=1.51,<2
+altair>=6.2.2,<7
 numpy>=1.26,<3
 pandas>=2.2,<3
 scikit-learn>=1.6,<2
