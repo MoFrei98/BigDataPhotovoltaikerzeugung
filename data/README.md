@@ -3,6 +3,24 @@
 Große Rohdaten werden nicht versioniert. Ohne lokale Dateien starten App und
 Notebook mit eindeutig markierten synthetischen Demodaten.
 
+## Automatischer Download
+
+Der empfohlene Weg lädt die offiziellen Daten, erzeugt das Stundenpanel und
+führt direkt ein Test-Training aus:
+
+```powershell
+python scripts/download_real_data.py --start-year 2022 --end-year 2024
+```
+
+Standardmäßig werden 16 räumlich verteilte DWD-Stationen ausgewählt, die den
+gesamten Zeitraum für alle benötigten Wettergrößen abdecken. Die Auswahl kann
+mit `--stations` geändert werden. Bereits vorhandene DWD-ZIPs werden nicht
+erneut heruntergeladen. Ein Herkunftsprotokoll wird unter
+`data/raw/download_manifest.json` gespeichert.
+
+Die folgenden Abschnitte beschreiben zusätzlich die weiterhin unterstützte
+manuelle Datenablage.
+
 ## 1. Realisierte Photovoltaikerzeugung aus SMARD
 
 Im [SMARD-Downloadcenter](https://www.smard.de/home/downloadcenter/download-marktdaten/)

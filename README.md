@@ -53,20 +53,29 @@ Die App bietet:
 
 ## Realdaten
 
-1. Bei [SMARD](https://www.smard.de/home/downloadcenter/download-marktdaten/)
-   die realisierte Photovoltaikerzeugung für Deutschland herunterladen.
-2. Jährliche installierte PV-Leistung in
-   `data/raw/capacity/installed_pv_capacity.csv` hinterlegen.
-3. DWD-ZIPs für Solarstrahlung, Temperatur/Feuchte, Bewölkung und Wind von
-   mehreren, deutschlandweit verteilten Stationen nach `data/raw/dwd/` kopieren.
-4. Panel erzeugen:
+Der vollständige Download von den offiziellen SMARD- und DWD-Webseiten, die
+Aufbereitung und ein Test-Training lassen sich mit einem Befehl starten:
 
 ```powershell
-python scripts/prepare_data.py
+python scripts/download_real_data.py --start-year 2022 --end-year 2024
 ```
 
-Die genaue Ablage, unterstützte Spalten und optionale Gewichtung nach regionaler
-PV-Leistung stehen in [`data/README.md`](data/README.md).
+Das Skript lädt die reale deutsche PV-Erzeugung und die installierte PV-Leistung
+von SMARD. Aus den historischen DWD-Archiven wählt es automatisch räumlich
+verteilte Stationen mit Solarstrahlung, Temperatur/Feuchte, Bewölkung und Wind.
+Es erzeugt `data/processed/hourly_pv_weather.csv` und validiert anschließend das
+Modell mit dem zeitlichen 80/20-Split.
+
+Danach verwendet die App automatisch die Realdaten:
+
+```powershell
+streamlit run app.py
+```
+
+Bereits manuell heruntergeladene Dateien können weiterhin mit
+`python scripts/prepare_data.py` verarbeitet werden. Weitere Details und die
+optionale Gewichtung nach regionaler PV-Leistung stehen in
+[`data/README.md`](data/README.md).
 
 ## Notebook
 

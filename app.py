@@ -12,6 +12,7 @@ import streamlit as st
 
 
 ROOT = Path(__file__).resolve().parent
+PROCESSED_DATA_PATH = ROOT / "data" / "processed" / "hourly_pv_weather.csv"
 
 from pv_weather import (  # noqa: E402
     TARGET,
@@ -56,8 +57,10 @@ st.markdown(
 
 
 @st.cache_data(show_spinner=False)
-def get_data() -> tuple[pd.DataFrame, str]:
-    return load_project_data(ROOT / "data" / "processed" / "hourly_pv_weather.csv")
+def get_data(data_version: int | None) -> tuple[pd.DataFrame, str]:
+    """Load data; the file timestamp invalidates a previously cached demo."""
+    del data_version
+    return load_project_data(PROCESSED_DATA_PATH)
 
 
 @st.cache_resource(show_spinner="PV-Modell wird zeitlich validiert …")
@@ -66,7 +69,12 @@ def get_model(data: pd.DataFrame):
 
 
 try:
-    data, source_label = get_data()
+    data_version = (
+        PROCESSED_DATA_PATH.stat().st_mtime_ns
+        if PROCESSED_DATA_PATH.exists()
+        else None
+    )
+    data, source_label = get_data(data_version)
     bundle = get_model(data)
 except (OSError, ValueError) as exc:
     st.error(f"Daten oder Modell konnten nicht vorbereitet werden: {exc}")
