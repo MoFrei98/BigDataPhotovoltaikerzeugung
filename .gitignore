@@ -12,6 +12,7 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+!data/processed/hourly_pv_weather.csv
 models/*
 !models/.gitkeep
 
