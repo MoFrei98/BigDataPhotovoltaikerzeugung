@@ -42,6 +42,24 @@ def test_smard_generation_sums_quarter_hours(tmp_path):
     assert pd.Timestamp(hourly["timestamp_utc"].iloc[0]).tz is not None
 
 
+def test_smard_generation_keeps_iso_dates_after_day_twelve(tmp_path):
+    (tmp_path / "pv_generation_iso.csv").write_text(
+        "timestamp_utc,pv_generation_mwh\n"
+        "2024-01-13T10:00:00+00:00,1200\n"
+        "2024-02-20T10:00:00+00:00,1400\n",
+        encoding="utf-8",
+    )
+
+    hourly = read_smard_generation(tmp_path)
+    observed = hourly.dropna(subset=["pv_generation_mwh"])
+
+    assert observed["timestamp_utc"].tolist() == [
+        pd.Timestamp("2024-01-13T10:00:00Z"),
+        pd.Timestamp("2024-02-20T10:00:00Z"),
+    ]
+    assert observed["pv_generation_mwh"].tolist() == [1200, 1400]
+
+
 def test_capacity_and_weighted_weather_join(tmp_path):
     smard = tmp_path / "smard"
     dwd = tmp_path / "dwd"

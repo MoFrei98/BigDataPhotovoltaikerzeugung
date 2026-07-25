@@ -12,20 +12,31 @@ MODEL_FEATURES = [
     "temperature_c",
     "relative_humidity_pct",
     "global_radiation_j_cm2",
-    "diffuse_radiation_j_cm2",
-    "sunshine_duration_min",
     "solar_zenith_angle_deg",
     "cloud_cover_oktas",
     "wind_speed_m_s",
     "estimated_module_temperature_c",
-    "thermal_stress_c",
-    "radiation_thermal_interaction",
     "diffuse_share",
     "hour_sin",
     "hour_cos",
     "month_sin",
     "month_cos",
 ]
+
+MONOTONIC_CONSTRAINTS = {
+    "temperature_c": -1,
+    "relative_humidity_pct": -1,
+    "global_radiation_j_cm2": 1,
+    "solar_zenith_angle_deg": -1,
+    "cloud_cover_oktas": -1,
+    "wind_speed_m_s": 1,
+    "estimated_module_temperature_c": -1,
+    "diffuse_share": -1,
+    "hour_sin": 0,
+    "hour_cos": 0,
+    "month_sin": 0,
+    "month_cos": 0,
+}
 
 
 def estimate_module_temperature(

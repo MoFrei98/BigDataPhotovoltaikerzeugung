@@ -11,7 +11,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from .features import MODEL_FEATURES, TARGET, add_features
+from .features import MONOTONIC_CONSTRAINTS, MODEL_FEATURES, TARGET, add_features
 
 
 @dataclass
@@ -52,6 +52,7 @@ def train_yield_model(frame: pd.DataFrame, test_fraction: float = 0.2) -> YieldM
         max_leaf_nodes=31,
         min_samples_leaf=30,
         l2_regularization=1.0,
+        monotonic_cst=MONOTONIC_CONSTRAINTS,
         random_state=42,
     ).fit(x_train, y_train)
 

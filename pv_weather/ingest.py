@@ -32,7 +32,12 @@ def _numeric(series: pd.Series) -> pd.Series:
 
 
 def _local_market_timestamp(series: pd.Series) -> pd.Series:
-    parsed = pd.to_datetime(series, dayfirst=True, errors="coerce")
+    text = series.astype(str).str.strip()
+    iso_timestamps = text.str.match(r"^\d{4}-\d{2}-\d{2}(?:[T ])")
+    if iso_timestamps.mean() > 0.5:
+        parsed = pd.to_datetime(text, format="ISO8601", errors="coerce")
+    else:
+        parsed = pd.to_datetime(text, dayfirst=True, errors="coerce")
     if getattr(parsed.dt, "tz", None) is not None:
         return parsed.dt.tz_convert("UTC")
     try:
@@ -160,17 +165,12 @@ def _load_station_weights(path: str | Path | None) -> dict[str, float]:
     }
 
 
-def read_dwd_archives(
-    directory: str | Path,
-    station_weights_path: str | Path | None = None,
-) -> pd.DataFrame:
-    """Aggregate DWD station observations using equal or supplied PV weights."""
+def _read_dwd_long(directory: str | Path) -> pd.DataFrame:
     directory = Path(directory)
     files = sorted(directory.glob("*.zip"))
     if not files:
         raise FileNotFoundError(f"Keine DWD-ZIP-Dateien in {directory} gefunden.")
 
-    weights = _load_station_weights(station_weights_path)
     long_frames: list[pd.DataFrame] = []
     column_map = {
         "TT_TU": ("temperature_c", 1.0),
@@ -232,9 +232,18 @@ def read_dwd_archives(
 
     if not long_frames:
         raise ValueError("Keine unterstützten Wettergrößen in den DWD-ZIPs erkannt.")
-    long = pd.concat(long_frames, ignore_index=True).drop_duplicates(
+    return pd.concat(long_frames, ignore_index=True).drop_duplicates(
         ["timestamp_utc", "station_id", "variable"], keep="last"
     )
+
+
+def read_dwd_archives(
+    directory: str | Path,
+    station_weights_path: str | Path | None = None,
+) -> pd.DataFrame:
+    """Aggregate DWD station observations using equal or supplied PV weights."""
+    long = _read_dwd_long(directory)
+    weights = _load_station_weights(station_weights_path)
     long["weight"] = long["station_id"].map(weights).fillna(1.0)
     long["weighted_value"] = long["value"] * long["weight"]
     aggregated = (
