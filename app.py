@@ -9,10 +9,12 @@ import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
+from streamlit_option_menu import option_menu
 
 
 ROOT = Path(__file__).resolve().parent
 PROCESSED_DATA_PATH = ROOT / "data" / "processed" / "hourly_pv_weather.csv"
+SCENARIO_REFERENCE_DAY = date(2024, 7, 1)
 
 from pv_weather import (  # noqa: E402
     TARGET,
@@ -46,7 +48,10 @@ st.markdown(
       padding:.3rem .75rem; background:rgba(255,255,255,.72); font-size:.82rem;}
     div[data-testid="stMetric"] {background:rgba(255,255,255,.78); border:1px solid #D8E2DD;
       border-radius:16px; padding:1rem 1.1rem; box-shadow:0 8px 30px rgba(23,60,52,.06);}
-    div[data-testid="stMetricValue"] {color:#173C34;}
+    div[data-testid="stMetricValue"] {color:#173C34;
+      font-size:clamp(1.55rem,2.4vw,2.25rem); white-space:normal;}
+    div[data-testid="stMetricValue"] > div {overflow:visible; text-overflow:clip;
+      white-space:normal;}
     .insight {border-left:4px solid #F2B134; background:#FFF9E8; padding:1rem 1.1rem;
       border-radius:0 12px 12px 0; color:#314F46;}
     .method-note {background:#E8F1ED; padding:1rem 1.1rem; border-radius:12px; color:#314F46;}
@@ -54,6 +59,33 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# CSS für die tab-ähnliche option_menu-Navigation, angepasst an das bestehende Farbschema.
+OPTION_MENU_STYLES = {
+    "container": {
+        "padding": "0",
+        "background-color": "transparent",
+        "border-bottom": "2px solid #D8E2DD",
+        "margin-bottom": "1.5rem",
+    },
+    "icon": {"color": "#567064", "font-size": "15px"},
+    "nav-link": {
+        "font-size": "0.95rem",
+        "font-weight": "600",
+        "color": "#4A625A",
+        "text-align": "center",
+        "margin": "0 4px",
+        "padding": "0.7rem 1.1rem",
+        "border-radius": "10px 10px 0 0",
+        "--hover-color": "#EEF3F0",
+    },
+    "nav-link-selected": {
+        "background-color": "#FFF9E8",
+        "color": "#173C34",
+        "border-bottom": "3px solid #F2B134",
+        "font-weight": "750",
+    },
+}
 
 
 @st.cache_data(show_spinner=False)
@@ -266,103 +298,126 @@ optimal_defaults = {
     ]
 }
 
-tab_prediction, tab_temperature, tab_optimum, tab_analysis, tab_method = st.tabs(
-    ["Prognose", "Thermischer Effekt", "Optimale Bedingungen", "Datenanalyse", "Modell & Daten"]
+# ---------------------------------------------------------------------------
+# Navigation: option_menu (horizontal, auf der Hauptseite) sieht wie echte
+# Tabs aus, gibt im Gegensatz zu st.tabs() aber den aktiven Wert zurück.
+# Damit weiß das Skript, welche Ansicht aktiv ist, und kann das
+# Meteorologische Szenario gezielt nur dort in der Sidebar einblenden.
+# ---------------------------------------------------------------------------
+PAGES = [
+    "Prognose",
+    "Thermischer Effekt",
+    "Optimale Bedingungen",
+    "Datenexploration",
+    "Modell & Daten",
+]
+SCENARIO_PAGES = {"Prognose", "Thermischer Effekt", "Optimale Bedingungen"}
+PAGE_ICONS = ["sliders", "thermometer-half", "trophy", "bar-chart-line", "gear"]
+
+page = option_menu(
+    menu_title=None,
+    options=PAGES,
+    icons=PAGE_ICONS,
+    orientation="horizontal",
+    styles=OPTION_MENU_STYLES,
 )
 
-with tab_prediction:
+scenario = prediction = None
+predicted_yield = module_temperature = None
+selected_hour = radiation = temperature = None
+cloud_cover = wind_speed = humidity = installed_capacity = None
+
+if page in SCENARIO_PAGES:
+    st.sidebar.markdown("### Meteorologisches Szenario")
+    selected_hour = st.sidebar.slider("Uhrzeit", 0, 23, 13)
+    radiation = st.sidebar.slider("Globalstrahlung (J/cm²)", 0.0, 360.0, 270.0, 5.0)
+    temperature = st.sidebar.slider("Lufttemperatur (°C)", -10.0, 42.0, 25.0, 0.5)
+    cloud_cover = st.sidebar.slider("Bewölkungsgrad (Achtel)", 0.0, 8.0, 2.0, 0.5)
+    wind_speed = st.sidebar.slider("Windgeschwindigkeit (m/s)", 0.0, 15.0, 3.0, 0.5)
+    humidity = st.sidebar.slider("Relative Luftfeuchtigkeit (%)", 10, 100, 55)
+    installed_capacity = st.sidebar.slider(
+        "Installierte PV-Leistung (MW)", 1_000, 200_000, 90_000, 1_000
+    )
+
+    scenario = scenario_frame(
+        SCENARIO_REFERENCE_DAY,
+        selected_hour,
+        radiation,
+        temperature,
+        cloud_cover,
+        wind_speed,
+        humidity,
+    )
+    prediction = predict_yield(bundle, scenario).iloc[0]
+    predicted_yield = float(prediction["normalized_pv_prediction"])
+    module_temperature = float(
+        estimate_module_temperature(
+            np.array([temperature]),
+            np.array([radiation]),
+            np.array([wind_speed]),
+        )[0]
+    )
+
+# ---------------------------------------------------------------------------
+# Seiteninhalte
+# ---------------------------------------------------------------------------
+
+if page == "Prognose":
     st.subheader("Meteorologisches Szenario")
-    inputs, output = st.columns([1.05, 0.95], gap="large")
-    with inputs:
-        left, right = st.columns(2)
-        with left:
-            selected_day = st.date_input("Datum", value=date(2024, 7, 1))
-            selected_hour = st.slider("Uhrzeit", 0, 23, 13)
-            radiation = st.slider("Globalstrahlung (J/cm²)", 0.0, 360.0, 270.0, 5.0)
-            temperature = st.slider("Lufttemperatur (°C)", -10.0, 42.0, 25.0, 0.5)
-        with right:
-            cloud_cover = st.slider("Bewölkungsgrad (Achtel)", 0.0, 8.0, 2.0, 0.5)
-            wind_speed = st.slider("Windgeschwindigkeit (m/s)", 0.0, 15.0, 3.0, 0.5)
-            humidity = st.slider("Relative Luftfeuchtigkeit (%)", 10, 100, 55)
-            installed_capacity = st.number_input(
-                "Installierte PV-Leistung (MW)", 1_000, 200_000, 90_000, 1_000
-            )
-
-        scenario = scenario_frame(
-            selected_day,
-            selected_hour,
-            radiation,
-            temperature,
-            cloud_cover,
-            wind_speed,
-            humidity,
-        )
-        prediction = predict_yield(bundle, scenario).iloc[0]
-        predicted_yield = float(prediction["normalized_pv_prediction"])
-        module_temperature = float(
-            estimate_module_temperature(
-                np.array([temperature]),
-                np.array([radiation]),
-                np.array([wind_speed]),
-            )[0]
-        )
-
-    with output:
-        st.markdown("##### Modellergebnis")
-        lower, upper = float(prediction["lower_80"]), float(prediction["upper_80"])
-        st.metric(
-            "Prognostizierte normierte PV-Erzeugung",
-            percent(predicted_yield),
-            yield_level(predicted_yield).upper(),
-        )
-        st.altair_chart(
-            prediction_chart(predicted_yield, lower, upper),
-            width="stretch",
-        )
-        st.caption(
-            "Der dunkle Marker zeigt die Prognose, die orange Linie das empirische "
-            "80-%-Intervall."
-        )
-        a, b = st.columns(2)
-        interval_label = f"{lower * 100:.1f}–{upper * 100:.1f} %".replace(".", ",")
-        a.metric("Empirisches 80%-Intervall", interval_label)
-        b.metric(
-            "Geschätzte Modultemperatur",
-            f"{module_temperature:.1f} °C".replace(".", ","),
-        )
-        average_power_mw = predicted_yield * installed_capacity
-        st.metric(
-            "Geschätzte Erzeugung bei gewählter Leistung",
-            f"{average_power_mw:,.0f} MW".replace(",", "."),
-            f"{average_power_mw:,.0f} MWh in einer Stunde".replace(",", "."),
-        )
-
-        if radiation >= 240 and module_temperature > 45:
-            message = (
-                "Hohe Einstrahlung, aber thermischer Stress: Der geschätzte "
-                "Modultemperaturbereich kann den zusätzlichen Ertrag begrenzen."
-            )
-        elif radiation >= 220 and 15 <= temperature <= 27:
-            message = (
-                "Günstige Kombination: starke Einstrahlung trifft auf moderate "
-                "Luft- und Modultemperaturen."
-            )
-        elif radiation < 100 or cloud_cover >= 6:
-            message = "Strahlung beziehungsweise Bewölkung begrenzen dieses Szenario deutlich."
-        else:
-            message = "Gemischte Wetterlage ohne ausgeprägtes Strahlungs- oder Temperatursignal."
-        st.markdown(f'<div class="insight">{message}</div>', unsafe_allow_html=True)
-
-with tab_temperature:
-    st.subheader("Ertrag bei gleicher Einstrahlung, variierter Temperatur")
+    lower, upper = float(prediction["lower_80"]), float(prediction["upper_80"])
+    st.metric(
+        "Prognostizierte normierte PV-Erzeugung",
+        percent(predicted_yield),
+        yield_level(predicted_yield).upper(),
+    )
+    st.altair_chart(
+        prediction_chart(predicted_yield, lower, upper),
+        width="stretch",
+    )
     st.caption(
-        "Alle übrigen Eingaben aus dem Prognose-Tab bleiben konstant. "
+        "Der dunkle Marker zeigt die Prognose, die orange Linie das empirische "
+        "80-%-Intervall."
+    )
+    a, b = st.columns(2)
+    interval_label = f"{lower * 100:.1f}–{upper * 100:.1f} %".replace(".", ",")
+    a.metric("Empirisches 80%-Intervall", interval_label)
+    b.metric(
+        "Geschätzte Modultemperatur",
+        f"{module_temperature:.1f} °C".replace(".", ","),
+    )
+    average_power_mw = predicted_yield * installed_capacity
+    st.metric(
+        "Geschätzte Erzeugung bei gewählter Leistung",
+        f"{average_power_mw:,.0f} MW".replace(",", "."),
+        f"{average_power_mw:,.0f} MWh in einer Stunde".replace(",", "."),
+    )
+
+    if radiation >= 240 and module_temperature > 45:
+        message = (
+            "Hohe Einstrahlung, aber thermischer Stress: Der geschätzte "
+            "Modultemperaturbereich kann den zusätzlichen Ertrag begrenzen."
+        )
+    elif radiation >= 220 and 15 <= temperature <= 27:
+        message = (
+            "Günstige Kombination: starke Einstrahlung trifft auf moderate "
+            "Luft- und Modultemperaturen."
+        )
+    elif radiation < 100 or cloud_cover >= 6:
+        message = "Strahlung beziehungsweise Bewölkung begrenzen dieses Szenario deutlich."
+    else:
+        message = "Gemischte Wetterlage ohne ausgeprägtes Strahlungs- oder Temperatursignal."
+    st.markdown(f'<div class="insight">{message}</div>', unsafe_allow_html=True)
+
+elif page == "Thermischer Effekt":
+    st.subheader("Ertrag bei konstanter Einstrahlung und variierter Temperatur")
+    st.caption(
+        "Alle übrigen Eingaben aus dem Prognose-Panel bleiben konstant. "
         "Die Kurve zeigt eine Modellreaktion, keinen isolierten kausalen Effekt."
     )
     temperatures = np.linspace(-5, 42, 95)
     curve_frames = [
         scenario_frame(
-            selected_day,
+            SCENARIO_REFERENCE_DAY,
             selected_hour,
             radiation,
             float(temp),
@@ -408,10 +463,13 @@ with tab_temperature:
     p2.metric("Prognose dort", f"{best_row['Normierte Erzeugung']:.1f} %")
     p3.metric(
         "Differenz zum aktuellen Szenario",
-        f"{best_row['Normierte Erzeugung'] - current_row['Normierte Erzeugung']:+.1f} Prozentpunkte",
+        (
+            f"{best_row['Normierte Erzeugung'] - current_row['Normierte Erzeugung']:+.1f}"
+        ).replace(".", ",")
+        + " %-Pkt.",
     )
 
-with tab_optimum:
+elif page == "Optimale Bedingungen":
     st.subheader("Aktuelles Szenario versus beobachtungsnahes Optimum")
     st.caption(
         "„Optimal“ entspricht den Medianbedingungen der besten 2 % Stunden im "
@@ -439,7 +497,16 @@ with tab_optimum:
         alt.Chart(comparison)
         .mark_bar(cornerRadiusTopLeft=7, cornerRadiusTopRight=7, size=70)
         .encode(
-            x=alt.X("Szenario:N", title=None),
+            x=alt.X(
+                "Szenario:N",
+                title=None,
+                axis=alt.Axis(
+                    labelAngle=0,
+                    labelLimit=220,
+                    labelPadding=12,
+                    labelFontSize=12,
+                ),
+            ),
             y=alt.Y("Normierte Erzeugung:Q", title="Prognose (%)"),
             color=alt.Color(
                 "Szenario:N",
@@ -452,6 +519,7 @@ with tab_optimum:
             tooltip=["Szenario", alt.Tooltip("Normierte Erzeugung:Q", format=".1f")],
         )
         .properties(height=360)
+        .configure_axis(labelFontSize=12, titleFontSize=13)
     )
     st.altair_chart(bars, width="stretch")
     conditions = pd.DataFrame(
@@ -468,7 +536,7 @@ with tab_optimum:
     )
     st.dataframe(conditions, hide_index=True, width="stretch")
 
-with tab_analysis:
+elif page == "Datenexploration":
     st.subheader("Forschungsfrage explorativ prüfen")
     daylight = featured[
         (featured["global_radiation_j_cm2"] > 10) & featured[TARGET].notna()
@@ -483,8 +551,18 @@ with tab_analysis:
             y=alt.Y("Normierte Erzeugung (%):Q"),
             color=alt.Color(
                 "estimated_module_temperature_c:Q",
-                title="geschätzte Modultemperatur (°C)",
+                title="Geschätzte Modultemperatur (°C)",
                 scale=alt.Scale(scheme="yelloworangered"),
+                legend=alt.Legend(
+                    orient="bottom",
+                    direction="horizontal",
+                    gradientLength=360,
+                    gradientThickness=14,
+                    titleLimit=320,
+                    labelLimit=80,
+                    titleFontSize=12,
+                    labelFontSize=11,
+                ),
             ),
             tooltip=[
                 alt.Tooltip("global_radiation_j_cm2:Q", format=".1f"),
@@ -494,6 +572,7 @@ with tab_analysis:
             ],
         )
         .properties(height=390)
+        .configure_axis(labelFontSize=12, titleFontSize=13)
     )
     st.altair_chart(scatter, width="stretch")
 
@@ -523,15 +602,24 @@ with tab_analysis:
         unsafe_allow_html=True,
     )
 
-with tab_method:
+elif page == "Modell & Daten":
     st.subheader("Modellgüte, Einflussmerkmale und Daten")
     metrics = bundle.metrics
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("MAE Modell", f"{metrics['model_mae'] * 100:.2f} Prozentpunkte")
-    m2.metric("RMSE Modell", f"{metrics['model_rmse'] * 100:.2f} Prozentpunkte")
-    m3.metric("R² Modell", f"{metrics['model_r2']:.3f}")
+    m1.metric(
+        "MAE Modell",
+        f"{metrics['model_mae'] * 100:.2f}".replace(".", ",") + " %-Pkt.",
+    )
+    m2.metric(
+        "RMSE Modell",
+        f"{metrics['model_rmse'] * 100:.2f}".replace(".", ",") + " %-Pkt.",
+    )
+    m3.metric("R² Modell", f"{metrics['model_r2']:.3f}".replace(".", ","))
     improvement = 1 - metrics["model_mae"] / metrics["baseline_mae"]
-    m4.metric("MAE ggü. Median-Baseline", f"{improvement:+.1%}")
+    m4.metric(
+        "MAE ggü. Median-Baseline",
+        f"{improvement:+.1%}".replace(".", ","),
+    )
     st.caption(
         f"Zeitlicher Test ab {bundle.split_timestamp:%d.%m.%Y}; "
         "keine zufällige Mischung von Vergangenheit und Zukunft."
@@ -570,10 +658,16 @@ with tab_method:
         .mark_bar(color="#F2B134", cornerRadiusEnd=4)
         .encode(
             x=alt.X("Bedeutung:Q", title="Permutation Importance (MAE-Anstieg)"),
-            y=alt.Y("Merkmal:N", sort="-x", title=None),
+            y=alt.Y(
+                "Merkmal:N",
+                sort="-x",
+                title=None,
+                axis=alt.Axis(labelLimit=240, labelPadding=8, labelFontSize=12),
+            ),
             tooltip=["Merkmal", alt.Tooltip("Bedeutung:Q", format=".4f")],
         )
-        .properties(height=330)
+        .properties(height=360)
+        .configure_axis(labelFontSize=12, titleFontSize=13)
     )
     st.altair_chart(importance_chart, width="stretch")
 

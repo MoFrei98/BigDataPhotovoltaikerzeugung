@@ -2,6 +2,7 @@
 # Keep this file Linux-compatible; development and notebook tools do not belong
 # in the Streamlit Community Cloud deployment environment.
 streamlit>=1.51,<2
+streamlit-option-menu>=0.4.0,<0.5
 altair>=6.2.2,<7
 numpy>=1.26,<3
 pandas>=2.2,<3
