@@ -103,7 +103,8 @@ def refresh_real_data(
 
     _notify(
         on_progress,
-        "5/5 Das Prognosemodell wird mit einem zeitlichen Test neu trainiert …",
+        "5/5 Das Prognosemodell wird mit PV-relevanten Tageslichtstunden und "
+        "einem zeitlichen Test neu trainiert …",
     )
     model = train_yield_model(prepared)
 

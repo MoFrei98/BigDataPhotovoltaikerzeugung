@@ -18,8 +18,7 @@ MODEL_SOURCE_PATHS = (
     ROOT / "pv_weather" / "features.py",
     ROOT / "pv_weather" / "modeling.py",
 )
-SCENARIO_REFERENCE_DAY = date(2024, 7, 1)
-SCENARIO_REFERENCE_HOUR = 13
+SCENARIO_PLACEHOLDER_TIMESTAMP = pd.Timestamp("2024-01-01", tz="UTC")
 MODULE_TEMPERATURE_HELP = (
     "Die Modultemperatur wird nicht gemessen, sondern NOCT-artig geschätzt: "
     "T_modul ≈ T_luft + 0,03125 × (Globalstrahlung / 0,36) "
@@ -108,7 +107,7 @@ def get_data(data_version: int | None) -> tuple[pd.DataFrame, str]:
     return load_project_data(PROCESSED_DATA_PATH)
 
 
-@st.cache_resource(show_spinner="PV-Modell wird zeitlich validiert …")
+@st.cache_resource(show_spinner="PV-Modell wird mit Tageslichtstunden validiert …")
 def get_model(data: pd.DataFrame, model_version: tuple[int, ...]):
     del model_version
     return train_yield_model(data)
@@ -156,45 +155,25 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-def solar_zenith(day: date, hour: int, latitude_deg: float = 51.0) -> float:
-    day_of_year = pd.Timestamp(day).dayofyear
-    declination = np.deg2rad(23.44 * np.sin(2 * np.pi * (284 + day_of_year) / 365))
-    latitude = np.deg2rad(latitude_deg)
-    hour_angle = np.deg2rad(15 * (hour - 12))
-    cosine = (
-        np.sin(latitude) * np.sin(declination)
-        + np.cos(latitude) * np.cos(declination) * np.cos(hour_angle)
-    )
-    return float(np.rad2deg(np.arccos(np.clip(cosine, -1, 1))))
-
-
 def scenario_frame(
-    selected_day: date,
     radiation: float,
     temperature: float,
     cloud_cover: float,
     wind_speed: float,
     humidity: float,
 ) -> pd.DataFrame:
-    timestamp = (
-        pd.Timestamp(selected_day)
-        .replace(hour=SCENARIO_REFERENCE_HOUR)
-        .tz_localize("Europe/Berlin", ambiguous=True, nonexistent="shift_forward")
-        .tz_convert("UTC")
-    )
     diffuse_share = np.clip(0.14 + 0.075 * cloud_cover, 0.12, 0.82)
     sunshine = np.clip(60 * (radiation / 330) * (1 - cloud_cover / 9), 0, 60)
     return pd.DataFrame(
         {
-            "timestamp_utc": [timestamp],
+            # add_features expects a timestamp, but calendar values are deliberately
+            # not model inputs for a purely meteorological scenario.
+            "timestamp_utc": [SCENARIO_PLACEHOLDER_TIMESTAMP],
             "temperature_c": [temperature],
             "relative_humidity_pct": [humidity],
             "global_radiation_j_cm2": [radiation],
             "diffuse_radiation_j_cm2": [radiation * diffuse_share],
             "sunshine_duration_min": [sunshine],
-            "solar_zenith_angle_deg": [
-                solar_zenith(selected_day, SCENARIO_REFERENCE_HOUR)
-            ],
             "cloud_cover_oktas": [cloud_cover],
             "wind_speed_m_s": [wind_speed],
         }
@@ -356,17 +335,65 @@ def remember_scenario_temperature() -> None:
     )
 
 
+def stepped_training_range(feature: str, step: float) -> tuple[float, float]:
+    """Round a feature's training bounds inward to a usable slider grid."""
+    lower, upper = bundle.training_bounds[feature]
+    return (
+        float(np.ceil(lower / step) * step),
+        float(np.floor(upper / step) * step),
+    )
+
+
 if page in SCENARIO_PAGES:
     st.sidebar.markdown("### Meteorologisches Szenario")
-    radiation = st.sidebar.slider("Globalstrahlung (J/cm²)", 0.0, 360.0, 270.0, 5.0)
+    radiation_slider_min, radiation_slider_max = stepped_training_range(
+        "global_radiation_j_cm2", 5.0
+    )
+    temperature_slider_min, temperature_slider_max = stepped_training_range(
+        "temperature_c", 0.5
+    )
+    cloud_slider_min, cloud_slider_max = stepped_training_range(
+        "cloud_cover_oktas", 0.5
+    )
+    wind_slider_min, wind_slider_max = stepped_training_range(
+        "wind_speed_m_s", 0.5
+    )
+    humidity_slider_min_float, humidity_slider_max_float = stepped_training_range(
+        "relative_humidity_pct", 1.0
+    )
+    humidity_slider_min = int(humidity_slider_min_float)
+    humidity_slider_max = int(humidity_slider_max_float)
+
+    radiation_default = float(
+        np.clip(270.0, radiation_slider_min, radiation_slider_max)
+    )
+    radiation = st.sidebar.slider(
+        "Globalstrahlung (J/cm²)",
+        radiation_slider_min,
+        radiation_slider_max,
+        radiation_default,
+        5.0,
+        help=(
+            "Der Regler bleibt innerhalb des Strahlungsbereichs der tatsächlich "
+            "verwendeten Trainingsstunden. Nacht- und Schwachlichtwerte bis "
+            "10 J/cm² werden nicht durch das Tageslichtmodell extrapoliert."
+        ),
+    )
+    st.session_state[TEMPERATURE_VALUE_KEY] = float(
+        np.clip(
+            st.session_state[TEMPERATURE_VALUE_KEY],
+            temperature_slider_min,
+            temperature_slider_max,
+        )
+    )
     if page == "Thermischer Effekt":
         st.session_state[THERMAL_TEMPERATURE_SLIDER_KEY] = float(
             st.session_state[TEMPERATURE_VALUE_KEY]
         )
         temperature = st.sidebar.slider(
             "Lufttemperatur (°C)",
-            min_value=-10.0,
-            max_value=42.0,
+            min_value=temperature_slider_min,
+            max_value=temperature_slider_max,
             step=0.5,
             key=THERMAL_TEMPERATURE_SLIDER_KEY,
             disabled=True,
@@ -380,17 +407,46 @@ if page in SCENARIO_PAGES:
             st.session_state[ACTIVE_TEMPERATURE_SLIDER_KEY] = float(
                 st.session_state[TEMPERATURE_VALUE_KEY]
             )
+        else:
+            st.session_state[ACTIVE_TEMPERATURE_SLIDER_KEY] = float(
+                np.clip(
+                    st.session_state[ACTIVE_TEMPERATURE_SLIDER_KEY],
+                    temperature_slider_min,
+                    temperature_slider_max,
+                )
+            )
         temperature = st.sidebar.slider(
             "Lufttemperatur (°C)",
-            min_value=-10.0,
-            max_value=42.0,
+            min_value=temperature_slider_min,
+            max_value=temperature_slider_max,
             step=0.5,
             key=ACTIVE_TEMPERATURE_SLIDER_KEY,
             on_change=remember_scenario_temperature,
         )
-    cloud_cover = st.sidebar.slider("Bewölkungsgrad (Achtel)", 0.0, 8.0, 2.0, 0.5)
-    wind_speed = st.sidebar.slider("Windgeschwindigkeit (m/s)", 0.0, 15.0, 3.0, 0.5)
-    humidity = st.sidebar.slider("Relative Luftfeuchtigkeit (%)", 10, 100, 55)
+    cloud_cover = st.sidebar.slider(
+        "Bewölkungsgrad (Achtel)",
+        cloud_slider_min,
+        cloud_slider_max,
+        float(np.clip(2.0, cloud_slider_min, cloud_slider_max)),
+        0.5,
+    )
+    wind_speed = st.sidebar.slider(
+        "Windgeschwindigkeit (m/s)",
+        wind_slider_min,
+        wind_slider_max,
+        float(np.clip(3.0, wind_slider_min, wind_slider_max)),
+        0.5,
+    )
+    humidity = st.sidebar.slider(
+        "Relative Luftfeuchtigkeit (%)",
+        humidity_slider_min,
+        humidity_slider_max,
+        int(np.clip(55, humidity_slider_min, humidity_slider_max)),
+    )
+    st.sidebar.caption(
+        "Die Reglerbereiche entsprechen den im Modelltraining beobachteten "
+        "Wertespannen. So entstehen keine ungestützten Randprognosen."
+    )
     if page == "Prognose":
         with st.sidebar.container(border=True):
             st.markdown("#### Leistungsskalierung")
@@ -403,7 +459,6 @@ if page in SCENARIO_PAGES:
             )
 
     scenario = scenario_frame(
-        SCENARIO_REFERENCE_DAY,
         radiation,
         temperature,
         cloud_cover,
@@ -480,10 +535,13 @@ elif page == "Thermischer Effekt":
         "Alle übrigen Eingaben aus der Szenario-Seitenleiste bleiben konstant. "
         "Die Kurve zeigt eine Modellreaktion, keinen isolierten kausalen Effekt."
     )
-    temperatures = np.linspace(-5, 42, 95)
+    temperatures = np.linspace(
+        temperature_slider_min,
+        temperature_slider_max,
+        95,
+    )
     curve_frames = [
         scenario_frame(
-            SCENARIO_REFERENCE_DAY,
             radiation,
             float(temp),
             cloud_cover,
@@ -541,7 +599,6 @@ elif page == "Optimale Bedingungen":
         "geladenen Datensatz, nicht einem technisch garantierten Anlagenoptimum."
     )
     optimum_scenario = scenario_frame(
-        date(2024, 6, 21),
         optimal_defaults["global_radiation_j_cm2"],
         optimal_defaults["temperature_c"],
         optimal_defaults["cloud_cover_oktas"],
@@ -576,8 +633,8 @@ elif page == "Optimale Bedingungen":
         {
             "Merkmal": "Globalstrahlung",
             "Einheit": "J/cm²",
-            "Minimum": 0.0,
-            "Maximum": 360.0,
+            "Minimum": radiation_slider_min,
+            "Maximum": radiation_slider_max,
             "Aktuell": radiation,
             "Top-2-%-Median": optimal_defaults["global_radiation_j_cm2"],
             "Nachkommastellen": 0,
@@ -585,8 +642,8 @@ elif page == "Optimale Bedingungen":
         {
             "Merkmal": "Lufttemperatur",
             "Einheit": "°C",
-            "Minimum": -10.0,
-            "Maximum": 42.0,
+            "Minimum": temperature_slider_min,
+            "Maximum": temperature_slider_max,
             "Aktuell": temperature,
             "Top-2-%-Median": optimal_defaults["temperature_c"],
             "Nachkommastellen": 1,
@@ -594,8 +651,8 @@ elif page == "Optimale Bedingungen":
         {
             "Merkmal": "Bewölkung",
             "Einheit": "/8",
-            "Minimum": 0.0,
-            "Maximum": 8.0,
+            "Minimum": cloud_slider_min,
+            "Maximum": cloud_slider_max,
             "Aktuell": cloud_cover,
             "Top-2-%-Median": optimal_defaults["cloud_cover_oktas"],
             "Nachkommastellen": 1,
@@ -603,8 +660,8 @@ elif page == "Optimale Bedingungen":
         {
             "Merkmal": "Windgeschwindigkeit",
             "Einheit": "m/s",
-            "Minimum": 0.0,
-            "Maximum": 15.0,
+            "Minimum": wind_slider_min,
+            "Maximum": wind_slider_max,
             "Aktuell": wind_speed,
             "Top-2-%-Median": optimal_defaults["wind_speed_m_s"],
             "Nachkommastellen": 1,
@@ -612,8 +669,8 @@ elif page == "Optimale Bedingungen":
         {
             "Merkmal": "Relative Luftfeuchtigkeit",
             "Einheit": "%",
-            "Minimum": 10.0,
-            "Maximum": 100.0,
+            "Minimum": humidity_slider_min,
+            "Maximum": humidity_slider_max,
             "Aktuell": humidity,
             "Top-2-%-Median": optimal_defaults["relative_humidity_pct"],
             "Nachkommastellen": 0,
@@ -988,10 +1045,15 @@ elif page == "Über die App":
             "dass das Modell einen entsprechend kleineren durchschnittlichen Fehler hat."
         ),
     )
-    st.caption(
+    model_basis_caption = (
         f"Zeitlicher Test ab {bundle.split_timestamp:%d.%m.%Y}; "
-        "keine zufällige Mischung von Vergangenheit und Zukunft."
-    )
+        "keine zufällige Mischung von Vergangenheit und Zukunft. Training und "
+        "Test verwenden nur PV-relevante Tageslichtstunden mit Globalstrahlung "
+        "über 10 J/cm² und Sonnenzenit unter 90°. "
+        f"Modellbasis: {int(metrics['model_rows']):,} von "
+        f"{int(metrics['source_rows']):,} Panelstunden."
+    ).replace(",", ".")
+    st.caption(model_basis_caption)
 
     with st.expander("Reproduzierbarer technischer Ablauf"):
         st.markdown(
@@ -1006,7 +1068,11 @@ elif page == "Über die App":
     st.markdown(
         '<div class="method-note"><b>Zielvariable:</b> PV-Erzeugung in MWh geteilt '
         "durch installierte PV-Leistung in MW und eine Stunde. Die installierte "
-        "Leistung wird damit zur Normierung verwendet, nicht als Wetterprädiktor.</div>",
+        "Leistung wird damit zur Normierung verwendet, nicht als Wetterprädiktor."
+        "<br><br><b>Szenariokontext:</b> Die Prognose verwendet ausschließlich "
+        "meteorologische Eingaben aus der Seitenleiste und daraus abgeleitete "
+        "Modellmerkmale. Uhrzeit, Monat und Sonnenstand beeinflussen die "
+        "Szenarioprognose nicht.</div>",
         unsafe_allow_html=True,
     )
     st.markdown("### Datengrundlage und Realdaten")
@@ -1027,11 +1093,16 @@ elif page == "Über die App":
 
     update_summary = st.session_state.get("_real_data_update_summary")
     if update_summary:
-        trained_rows = f"{update_summary['row_count']:,}".replace(",", ".")
+        data_rows = f"{update_summary['row_count']:,}".replace(",", ".")
+        model_row_count = update_summary.get(
+            "model_row_count", int(metrics["model_rows"])
+        )
+        model_rows = f"{model_row_count:,}".replace(",", ".")
         st.success(
             f"Realdaten für {update_summary['start_year']}–"
-            f"{update_summary['end_year']} wurden geladen. Das Modell wurde mit "
-            f"{trained_rows} Stunden neu trainiert.",
+            f"{update_summary['end_year']} wurden geladen: {data_rows} Stunden "
+            f"im vollständigen Datensatz, davon {model_rows} PV-relevante "
+            "Tageslichtstunden für Training und zeitlichen Test.",
             icon="✅",
         )
 
@@ -1096,6 +1167,7 @@ elif page == "Über die App":
                     "end_year": update.end_year,
                     "row_count": update.row_count,
                     "station_count": update.station_count,
+                    "model_row_count": int(update.model.metrics["model_rows"]),
                 }
                 get_data.clear()
                 download_status.update(
@@ -1134,7 +1206,9 @@ elif page == "Über die App":
         st.caption(
             "Die Tabelle zeigt die letzten 200 Zeilen aus "
             "`data/processed/hourly_pv_weather.csv`. Aus diesem aufbereiteten "
-            "Datensatz stammen auch die Trainings- und Testdaten des Modells."
+            "Datensatz stammen auch die Trainings- und Testdaten des Modells. "
+            "Die vollständigen Nachtstunden bleiben hier sichtbar, werden aber "
+            "nicht für Modelltraining und Modellbewertung verwendet."
         )
     preview = data.tail(200).copy()
     preview["timestamp_utc"] = preview["timestamp_utc"].astype(str)

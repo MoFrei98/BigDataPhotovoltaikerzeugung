@@ -59,6 +59,12 @@ automatisch aufbereitet und das Modell mit einem zeitlichen Test neu trainiert.
 Der bisherige Datensatz wird erst ersetzt, wenn die Verarbeitung und das
 Training erfolgreich waren.
 
+Der vollständige Stundenbestand bleibt für Datenkontrolle und Exploration
+erhalten. Modelltraining und Modellbewertung verwenden nur PV-relevante
+Tageslichtstunden mit Globalstrahlung über 10 J/cm² und einem Sonnenzenit unter
+90°. Physikalisch plausible Nachtwerte werden dadurch nicht als fehlende Daten
+behandelt, beeinflussen aber auch nicht die Modellkennzahlen.
+
 Der vollständige Download von den offiziellen SMARD- und DWD-Webseiten, die
 Aufbereitung und ein Test-Training lassen sich mit einem Befehl starten:
 
@@ -96,14 +102,18 @@ jupyter lab notebooks/pv_wetter_deutschland.ipynb
 ## Methodik
 
 - einheitliche Stundenauflösung und UTC-Zeitstempel
-- Kalendermerkmale in Europe/Berlin
+- Kalendermerkmale in Europe/Berlin für die Datenexploration; Uhrzeit, Monat
+  und Sonnenstand sind bewusst keine Eingaben des meteorologischen
+  Prognosemodells
 - deutschlandweite Mittelwerte oder optionale PV-gewichtete Stationsmittel
 - jährliche Zuordnung der installierten Leistung
 - geschätzte Modultemperatur über eine einfache NOCT-artige Näherung mit
   Windkorrektur
 - Gradient Boosting gegen Median-Baseline mit physikalisch plausiblen
   Monotoniebedingungen für die interaktive Szenarioanalyse
-- zeitlich zusammenhängender 80/20-Test statt zufälligem Mischen
+- zeitlich zusammenhängender 80/20-Test innerhalb der PV-relevanten
+  Tageslichtstunden statt zufälligem Mischen
+- Szenarioregler innerhalb der im Modelltraining beobachteten Wertespannen
 - empirisches 80%-Intervall aus Testresiduen
 
 ## Projektstruktur

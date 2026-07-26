@@ -117,7 +117,10 @@ def main() -> None:
     print(f"    Herkunftsprotokoll: {manifest_path}")
 
     if not args.skip_training:
-        print("Modell wird mit zeitlichem 80/20-Split testweise trainiert …")
+        print(
+            "Modell wird mit PV-relevanten Tageslichtstunden und zeitlichem "
+            "80/20-Split testweise trainiert …"
+        )
         bundle = train_yield_model(prepared)
         metrics = bundle.metrics
         print(

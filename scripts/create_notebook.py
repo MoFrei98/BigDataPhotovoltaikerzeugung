@@ -47,8 +47,10 @@ Diese sind kein empirischer Befund.
 ## 1. Setup und Datenstatus
 
 SMARD liefert realisierte Photovoltaikerzeugung und die installierte Leistung.
-DWD-Stationsdaten werden deutschlandweit aggregiert. Gespeichert wird in UTC,
-Kalendermerkmale werden in Europe/Berlin erzeugt.
+DWD-Stationsdaten werden deutschlandweit aggregiert. Gespeichert wird in UTC.
+Kalendermerkmale werden für die Datenexploration in Europe/Berlin erzeugt,
+gehören aber bewusst nicht zu den Eingaben des meteorologischen
+Prognosemodells.
 """
         ),
         code(
@@ -258,9 +260,12 @@ print(
             """
 ## 6. Zeitlich ehrliches Prognosemodell
 
-Die ersten 80 % der vollständigen Beobachtungen bilden das Training, die
-neuesten 20 % einen zusammenhängenden Test. Das verhindert zufälliges
-Vermischen von Vergangenheit und Zukunft.
+Der vollständige Stundenbestand bleibt für die Datenexploration erhalten. Für
+das Modell werden daraus PV-relevante Tageslichtstunden mit Globalstrahlung
+über 10 J/cm² und Sonnenzenit unter 90° ausgewählt. Die ersten 80 % dieser
+Beobachtungen bilden das Training, die neuesten 20 % einen zusammenhängenden
+Test. Das verhindert zufälliges Vermischen von Vergangenheit und Zukunft und
+verhindert, dass leicht erkennbare Nachtstunden die Modellgüte dominieren.
 
 Die Kennzahlen entsprechen dem Bereich „Modellgüte“ in der Streamlit-App.
 MAE und RMSE werden in Prozentpunkten angegeben; R² ist keine Trefferquote.
@@ -285,6 +290,10 @@ metrics = pd.DataFrame(
     index=["MAE (Prozentpunkte)", "RMSE (Prozentpunkte)", "R²"],
 )
 print(f"Zeitlicher Test beginnt: {bundle.split_timestamp}")
+print(
+    f"Modellstunden: {int(bundle.metrics['model_rows']):,} von "
+    f"{int(bundle.metrics['source_rows']):,} vollständigen Panelstunden"
+)
 display(metrics.round(3))
 """
         ),
@@ -299,39 +308,13 @@ die normierte Modellprognose bleibt unverändert.
         ),
         code(
             r"""
-SCENARIO_REFERENCE_DAY = pd.Timestamp("2024-07-01")
-SCENARIO_REFERENCE_HOUR = 13
-
-
-def solar_zenith(day, hour, latitude_deg=51.0):
-    day_of_year = pd.Timestamp(day).dayofyear
-    declination = np.deg2rad(
-        23.44 * np.sin(2 * np.pi * (284 + day_of_year) / 365)
-    )
-    latitude = np.deg2rad(latitude_deg)
-    hour_angle = np.deg2rad(15 * (hour - 12))
-    cosine = (
-        np.sin(latitude) * np.sin(declination)
-        + np.cos(latitude) * np.cos(declination) * np.cos(hour_angle)
-    )
-    return float(np.rad2deg(np.arccos(np.clip(cosine, -1, 1))))
-
-
 def scenario_frame(
-    day=SCENARIO_REFERENCE_DAY,
-    hour=SCENARIO_REFERENCE_HOUR,
     radiation=270.0,
     temperature=25.0,
     cloud_cover=2.0,
     wind_speed=3.0,
     humidity=55.0,
 ):
-    timestamp = (
-        pd.Timestamp(day)
-        .replace(hour=hour)
-        .tz_localize("Europe/Berlin", ambiguous=True, nonexistent="shift_forward")
-        .tz_convert("UTC")
-    )
     diffuse_share = np.clip(0.14 + 0.075 * cloud_cover, 0.12, 0.82)
     sunshine = np.clip(
         60 * (radiation / 330) * (1 - cloud_cover / 9),
@@ -340,13 +323,13 @@ def scenario_frame(
     )
     return pd.DataFrame(
         {
-            "timestamp_utc": [timestamp],
+            # Technischer Platzhalter: Kalenderwerte sind keine Modellmerkmale.
+            "timestamp_utc": [pd.Timestamp("2024-01-01", tz="UTC")],
             "temperature_c": [temperature],
             "relative_humidity_pct": [humidity],
             "global_radiation_j_cm2": [radiation],
             "diffuse_radiation_j_cm2": [radiation * diffuse_share],
             "sunshine_duration_min": [sunshine],
-            "solar_zenith_angle_deg": [solar_zenith(day, hour)],
             "cloud_cover_oktas": [cloud_cover],
             "wind_speed_m_s": [wind_speed],
         }
@@ -395,15 +378,17 @@ display(scenario_result.round(2))
             """
 ## 8. Thermischer Effekt bei gleicher Einstrahlung
 
-Die Lufttemperatur wird wie im App-Tab „Thermischer Effekt“ von −5 bis 42 °C
-variiert. Globalstrahlung, Bewölkung, Wind, Luftfeuchtigkeit und Kalenderwerte
-bleiben konstant. Die Kurve zeigt eine Modellreaktion und keinen isolierten
+Die Lufttemperatur wird wie im App-Tab „Thermischer Effekt“ innerhalb ihres
+beobachteten Trainingsbereichs variiert. Globalstrahlung, Bewölkung, Wind und
+Luftfeuchtigkeit bleiben konstant. Kalender- und Uhrzeitwerte sind bewusst
+keine Modellmerkmale. Die Kurve zeigt eine Modellreaktion und keinen isolierten
 Kausalnachweis.
 """
         ),
         code(
             r"""
-temperatures = np.linspace(-5, 42, 95)
+temperature_min, temperature_max = bundle.training_bounds["temperature_c"]
+temperatures = np.linspace(temperature_min, temperature_max, 95)
 curve_input = pd.concat(
     [scenario_frame(temperature=float(value)) for value in temperatures],
     ignore_index=True,
@@ -459,7 +444,6 @@ optimal_defaults = {
     ]
 }
 optimal_scenario = scenario_frame(
-    day=pd.Timestamp("2024-06-21"),
     radiation=optimal_defaults["global_radiation_j_cm2"],
     temperature=optimal_defaults["temperature_c"],
     cloud_cover=optimal_defaults["cloud_cover_oktas"],
@@ -489,11 +473,31 @@ yield_comparison = pd.DataFrame(
 display(yield_comparison.round(2))
 
 condition_specs = [
-    ("Globalstrahlung", "J/cm²", 0, 360, 270.0, optimal_defaults["global_radiation_j_cm2"]),
-    ("Lufttemperatur", "°C", -10, 42, 25.0, optimal_defaults["temperature_c"]),
-    ("Bewölkung", "Achtel", 0, 8, 2.0, optimal_defaults["cloud_cover_oktas"]),
-    ("Windgeschwindigkeit", "m/s", 0, 15, 3.0, optimal_defaults["wind_speed_m_s"]),
-    ("Relative Luftfeuchtigkeit", "%", 10, 100, 55.0, optimal_defaults["relative_humidity_pct"]),
+    (
+        "Globalstrahlung", "J/cm²",
+        *bundle.training_bounds["global_radiation_j_cm2"],
+        270.0, optimal_defaults["global_radiation_j_cm2"],
+    ),
+    (
+        "Lufttemperatur", "°C",
+        *bundle.training_bounds["temperature_c"],
+        25.0, optimal_defaults["temperature_c"],
+    ),
+    (
+        "Bewölkung", "Achtel",
+        *bundle.training_bounds["cloud_cover_oktas"],
+        2.0, optimal_defaults["cloud_cover_oktas"],
+    ),
+    (
+        "Windgeschwindigkeit", "m/s",
+        *bundle.training_bounds["wind_speed_m_s"],
+        3.0, optimal_defaults["wind_speed_m_s"],
+    ),
+    (
+        "Relative Luftfeuchtigkeit", "%",
+        *bundle.training_bounds["relative_humidity_pct"],
+        55.0, optimal_defaults["relative_humidity_pct"],
+    ),
 ]
 fig, axes = plt.subplots(len(condition_specs), 1, figsize=(10, 8), constrained_layout=True)
 for index, (label, unit, minimum, maximum, current_value, optimal_value) in enumerate(

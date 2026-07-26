@@ -14,6 +14,10 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from .features import MONOTONIC_CONSTRAINTS, MODEL_FEATURES, TARGET, add_features
 
 
+MIN_MODEL_GLOBAL_RADIATION_J_CM2 = 10.0
+MAX_MODEL_SOLAR_ZENITH_DEG = 90.0
+
+
 @dataclass
 class YieldModelBundle:
     model: HistGradientBoostingRegressor
@@ -22,6 +26,7 @@ class YieldModelBundle:
     residuals: np.ndarray
     split_timestamp: pd.Timestamp
     training_medians: dict[str, float]
+    training_bounds: dict[str, tuple[float, float]]
     feature_importance: dict[str, float]
 
 
@@ -33,12 +38,26 @@ def _metrics(actual: pd.Series, predicted: np.ndarray) -> dict[str, float]:
     }
 
 
+def select_pv_relevant_hours(featured: pd.DataFrame) -> pd.DataFrame:
+    """Select daylight observations with enough radiation for PV modeling."""
+    return featured.loc[
+        (featured["global_radiation_j_cm2"] > MIN_MODEL_GLOBAL_RADIATION_J_CM2)
+        & (featured["solar_zenith_angle_deg"] < MAX_MODEL_SOLAR_ZENITH_DEG)
+    ].copy()
+
+
 def train_yield_model(frame: pd.DataFrame, test_fraction: float = 0.2) -> YieldModelBundle:
-    """Train on the past and evaluate on the newest contiguous observations."""
+    """Train on PV-relevant daylight hours and test on the newest observations."""
     featured = add_features(frame).replace([np.inf, -np.inf], np.nan)
-    usable = featured.dropna(subset=[*MODEL_FEATURES, TARGET]).sort_values("timestamp_utc")
+    pv_relevant = select_pv_relevant_hours(featured)
+    usable = pv_relevant.dropna(
+        subset=[*MODEL_FEATURES, TARGET]
+    ).sort_values("timestamp_utc")
     if len(usable) < 500:
-        raise ValueError("Mindestens 500 vollständige Stunden werden für Training und Test benötigt.")
+        raise ValueError(
+            "Mindestens 500 vollständige PV-relevante Tageslichtstunden werden "
+            "für Training und Test benötigt."
+        )
 
     split = int(len(usable) * (1 - test_fraction))
     train, test = usable.iloc[:split], usable.iloc[split:]
@@ -81,10 +100,18 @@ def train_yield_model(frame: pd.DataFrame, test_fraction: float = 0.2) -> YieldM
             **{f"baseline_{key}": value for key, value in baseline_metrics.items()},
             "train_rows": float(len(train)),
             "test_rows": float(len(test)),
+            "model_rows": float(len(usable)),
+            "source_rows": float(len(featured)),
+            "excluded_low_light_rows": float(len(featured) - len(pv_relevant)),
+            "excluded_incomplete_model_rows": float(len(pv_relevant) - len(usable)),
         },
         residuals=y_test.to_numpy() - prediction,
         split_timestamp=pd.Timestamp(test["timestamp_utc"].iloc[0]),
         training_medians={column: float(x_train[column].median()) for column in MODEL_FEATURES},
+        training_bounds={
+            column: (float(x_train[column].min()), float(x_train[column].max()))
+            for column in MODEL_FEATURES
+        },
         feature_importance=feature_importance,
     )
 
