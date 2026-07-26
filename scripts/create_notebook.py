@@ -422,12 +422,6 @@ curve_data = pd.DataFrame(
         ),
     }
 )
-row_25 = curve_data.iloc[
-    int(np.abs(curve_data["Lufttemperatur (°C)"] - 25).argmin())
-]
-row_35 = curve_data.iloc[
-    int(np.abs(curve_data["Lufttemperatur (°C)"] - 35).argmin())
-]
 
 plt.figure(figsize=(11, 5.2))
 plt.plot(
@@ -436,44 +430,10 @@ plt.plot(
     color="#E19A18",
     linewidth=2.8,
 )
-plt.scatter(
-    [row_25["Lufttemperatur (°C)"], row_35["Lufttemperatur (°C)"]],
-    [
-        row_25["Normierte PV-Erzeugung (%)"],
-        row_35["Normierte PV-Erzeugung (%)"],
-    ],
-    color="#173C34",
-    s=70,
-    zorder=3,
-)
 plt.xlabel("Lufttemperatur (°C)")
 plt.ylabel("Normierte PV-Erzeugung (%)")
 plt.title("Temperatur-Sensitivität bei gleicher Einstrahlung")
 plt.show()
-
-thermal_reference = pd.DataFrame(
-    {
-        "Lufttemperatur (°C)": [
-            row_25["Lufttemperatur (°C)"],
-            row_35["Lufttemperatur (°C)"],
-        ],
-        "Geschätzte Modultemperatur (°C)": [
-            row_25["Geschätzte Modultemperatur (°C)"],
-            row_35["Geschätzte Modultemperatur (°C)"],
-        ],
-        "Normierte PV-Erzeugung (%)": [
-            row_25["Normierte PV-Erzeugung (%)"],
-            row_35["Normierte PV-Erzeugung (%)"],
-        ],
-    },
-    index=["Referenz 25 °C", "Referenz 35 °C"],
-)
-display(thermal_reference.round(2))
-print(
-    "Modellbasierter Rückgang von 25 auf 35 °C: "
-    f"{row_25['Normierte PV-Erzeugung (%)'] - row_35['Normierte PV-Erzeugung (%)']:.2f} "
-    "Prozentpunkte."
-)
 """
         ),
         markdown(

@@ -342,23 +342,52 @@ predicted_yield = module_temperature = None
 radiation = temperature = None
 cloud_cover = wind_speed = humidity = installed_capacity = None
 
+TEMPERATURE_VALUE_KEY = "_scenario_temperature_c"
+ACTIVE_TEMPERATURE_SLIDER_KEY = "_active_temperature_slider"
+THERMAL_TEMPERATURE_SLIDER_KEY = "_thermal_temperature_slider"
+
+if TEMPERATURE_VALUE_KEY not in st.session_state:
+    st.session_state[TEMPERATURE_VALUE_KEY] = 25.0
+
+
+def remember_scenario_temperature() -> None:
+    st.session_state[TEMPERATURE_VALUE_KEY] = float(
+        st.session_state[ACTIVE_TEMPERATURE_SLIDER_KEY]
+    )
+
+
 if page in SCENARIO_PAGES:
     st.sidebar.markdown("### Meteorologisches Szenario")
     radiation = st.sidebar.slider("Globalstrahlung (J/cm²)", 0.0, 360.0, 270.0, 5.0)
-    temperature = st.sidebar.slider(
-        "Lufttemperatur (°C)",
-        -10.0,
-        42.0,
-        25.0,
-        0.5,
-        disabled=page == "Thermischer Effekt",
-        help=(
-            "Im Tab „Thermischer Effekt“ wird die Lufttemperatur automatisch "
-            "über die gesamte Kurve variiert."
-            if page == "Thermischer Effekt"
-            else None
-        ),
-    )
+    if page == "Thermischer Effekt":
+        st.session_state[THERMAL_TEMPERATURE_SLIDER_KEY] = float(
+            st.session_state[TEMPERATURE_VALUE_KEY]
+        )
+        temperature = st.sidebar.slider(
+            "Lufttemperatur (°C)",
+            min_value=-10.0,
+            max_value=42.0,
+            step=0.5,
+            key=THERMAL_TEMPERATURE_SLIDER_KEY,
+            disabled=True,
+            help=(
+                "Im Tab „Thermischer Effekt“ wird die Lufttemperatur automatisch "
+                "über die gesamte Kurve variiert."
+            ),
+        )
+    else:
+        if ACTIVE_TEMPERATURE_SLIDER_KEY not in st.session_state:
+            st.session_state[ACTIVE_TEMPERATURE_SLIDER_KEY] = float(
+                st.session_state[TEMPERATURE_VALUE_KEY]
+            )
+        temperature = st.sidebar.slider(
+            "Lufttemperatur (°C)",
+            min_value=-10.0,
+            max_value=42.0,
+            step=0.5,
+            key=ACTIVE_TEMPERATURE_SLIDER_KEY,
+            on_change=remember_scenario_temperature,
+        )
     cloud_cover = st.sidebar.slider("Bewölkungsgrad (Achtel)", 0.0, 8.0, 2.0, 0.5)
     wind_speed = st.sidebar.slider("Windgeschwindigkeit (m/s)", 0.0, 15.0, 3.0, 0.5)
     humidity = st.sidebar.slider("Relative Luftfeuchtigkeit (%)", 10, 100, 55)
@@ -492,58 +521,17 @@ elif page == "Thermischer Effekt":
             ],
         )
     )
-    reference_rows = curve_data[
-        curve_data["Lufttemperatur"].isin([25.0, 35.0])
-    ].copy()
-    reference_points = (
-        alt.Chart(reference_rows)
-        .mark_circle(color="#173C34", size=150)
-        .encode(
-            x=alt.X("Lufttemperatur:Q"),
-            y=alt.Y("Normierte Erzeugung:Q"),
-            tooltip=[
-                alt.Tooltip("Lufttemperatur:Q", format=".1f"),
-                alt.Tooltip("Modultemperatur:Q", format=".1f"),
-                alt.Tooltip("Normierte Erzeugung:Q", format=".1f"),
-            ],
-        )
-    )
-    temperature_sensitivity_chart = (
-        (temperature_line + reference_points).properties(height=400)
-    )
     st.markdown("##### Temperatur-Sensitivität bei gleicher Einstrahlung")
-    st.altair_chart(temperature_sensitivity_chart, width="stretch")
+    st.altair_chart(
+        temperature_line.properties(height=400),
+        width="stretch",
+    )
     chart_interpretation(
         "Die Linie zeigt, wie sich die normierte Modellprognose verändert, wenn "
         "nur die Lufttemperatur variiert. Alle übrigen Szenarioeingaben bleiben "
         "konstant. Sinkt die Kurve bei höheren Temperaturen, berücksichtigt das "
-        "Modell einen möglichen thermischen Leistungsverlust. Die beiden dunklen "
-        "Punkte markieren die Referenzwerte bei 25 und 35 °C. Die Darstellung allein "
+        "Modell einen möglichen thermischen Leistungsverlust. Die Darstellung allein "
         "belegt jedoch noch keine Ursache-Wirkungs-Beziehung."
-    )
-    row_25 = curve_data.iloc[int(np.abs(temperatures - 25).argmin())]
-    row_35 = curve_data.iloc[int(np.abs(temperatures - 35).argmin())]
-    thermal_reduction = (
-        float(row_25["Normierte Erzeugung"])
-        - float(row_35["Normierte Erzeugung"])
-    )
-    p1, p2, p3 = st.columns(3)
-    p1.metric(
-        "Normierte Erzeugung bei 25 °C",
-        f"{row_25['Normierte Erzeugung']:.1f} %".replace(".", ","),
-    )
-    p2.metric(
-        "Normierte Erzeugung bei 35 °C",
-        f"{row_35['Normierte Erzeugung']:.1f} %".replace(".", ","),
-    )
-    p3.metric(
-        "Modellbasierter Rückgang von 25 auf 35 °C",
-        f"{thermal_reduction:.1f}".replace(".", ",") + " %-Pkt.",
-        help=(
-            "Differenz der Modellprognosen bei ansonsten identischen "
-            "Szenarioeingaben. Der Wert ist eine Modellsensitivität und kein "
-            "direkt gemessener Anlagenverlust."
-        ),
     )
 
 elif page == "Optimale Bedingungen":
