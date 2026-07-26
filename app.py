@@ -20,12 +20,8 @@ MODEL_SOURCE_PATHS = (
 )
 SCENARIO_PLACEHOLDER_TIMESTAMP = pd.Timestamp("2024-01-01", tz="UTC")
 MODULE_TEMPERATURE_HELP = (
-    "Die Modultemperatur wird nicht gemessen, sondern NOCT-artig geschätzt: "
-    "T_modul ≈ T_luft + 0,03125 × (Globalstrahlung / 0,36) "
-    "/ (1 + 0,12 × Wind). Globalstrahlung in J/cm² wird dabei durch 0,36 "
-    "in eine mittlere Einstrahlung in W/m² umgerechnet. Deshalb steigt die "
-    "geschätzte Modultemperatur bei stärkerer Einstrahlung automatisch mit an; "
-    "sie ist in diesem Diagramm keine unabhängige Messgröße."
+    "NOCT bedeutet „Nominal Operating Cell Temperature“. Der Wert ist eine "
+    "Schätzung aus Lufttemperatur, Globalstrahlung und Wind, keine Messung."
 )
 from pv_weather import (  # noqa: E402
     TARGET,
@@ -374,9 +370,8 @@ if page in SCENARIO_PAGES:
         radiation_default,
         5.0,
         help=(
-            "Der Regler bleibt innerhalb des Strahlungsbereichs der tatsächlich "
-            "verwendeten Trainingsstunden. Nacht- und Schwachlichtwerte bis "
-            "10 J/cm² werden nicht durch das Tageslichtmodell extrapoliert."
+            "Globalstrahlung im Trainingsbereich des Modells. Werte bis "
+            "10 J/cm² wurden nicht für das Tageslichtmodell verwendet."
         ),
     )
     st.session_state[TEMPERATURE_VALUE_KEY] = float(
@@ -397,10 +392,7 @@ if page in SCENARIO_PAGES:
             step=0.5,
             key=THERMAL_TEMPERATURE_SLIDER_KEY,
             disabled=True,
-            help=(
-                "Im Tab „Thermischer Effekt“ wird die Lufttemperatur automatisch "
-                "über die gesamte Kurve variiert."
-            ),
+            help="Die Kurve variiert die Lufttemperatur automatisch.",
         )
     else:
         if ACTIVE_TEMPERATURE_SLIDER_KEY not in st.session_state:
@@ -624,8 +616,8 @@ elif page == "Optimale Bedingungen":
         "Differenz zu den Top-2-%-Bedingungen",
         f"{prediction_difference:+.1f}".replace(".", ",") + " %-Pkt.",
         help=(
-            "Aktuelles Szenario minus Top-2-%-Bedingungen. Ein negativer Wert "
-            "bedeutet, dass das aktuelle Szenario darunter liegt."
+            "Aktuelles Szenario minus Top-2-%-Bedingungen. Negativ bedeutet: "
+            "Das aktuelle Szenario liegt darunter."
         ),
     )
 
@@ -1012,27 +1004,24 @@ elif page == "Über die App":
         "MAE Modell",
         f"{metrics['model_mae'] * 100:.2f}".replace(".", ",") + " %-Pkt.",
         help=(
-            "MAE steht für „Mean Absolute Error“, also mittlerer absoluter Fehler. "
-            "Der Wert gibt an, um wie viele Prozentpunkte die Prognose im Durchschnitt "
-            "vom tatsächlich beobachteten Wert abweicht. Kleiner ist besser."
+            "MAE = Mean Absolute Error (mittlerer absoluter Fehler). "
+            "Durchschnittliche Abweichung in Prozentpunkten; kleiner ist besser."
         ),
     )
     m2.metric(
         "RMSE Modell",
         f"{metrics['model_rmse'] * 100:.2f}".replace(".", ",") + " %-Pkt.",
         help=(
-            "RMSE steht für „Root Mean Squared Error“. Diese Fehlerkennzahl gewichtet "
-            "große Abweichungen stärker als kleine. Kleiner ist besser. Liegt der RMSE "
-            "deutlich über dem MAE, gibt es einzelne größere Prognosefehler."
+            "RMSE = Root Mean Squared Error. Gewichtet große Prognosefehler "
+            "stärker; kleiner ist besser."
         ),
     )
     m3.metric(
         "R² Modell",
         f"{metrics['model_r2']:.3f}".replace(".", ","),
         help=(
-            "R² heißt Bestimmtheitsmaß. Ein Wert nahe 1 bedeutet, dass das Modell "
-            "einen großen Anteil der beobachteten Schwankungen im Testzeitraum erklärt. "
-            "R² ist keine Trefferquote und bedeutet nicht „Prozent richtige Prognosen“."
+            "R² = Bestimmtheitsmaß. Zeigt, wie viel der Schwankungen im Test "
+            "erklärt wird; näher an 1 ist besser."
         ),
     )
     improvement = 1 - metrics["model_mae"] / metrics["baseline_mae"]
@@ -1040,9 +1029,8 @@ elif page == "Über die App":
         "Fehlerreduktion gegenüber Vergleich",
         f"{improvement:+.1%}".replace(".", ","),
         help=(
-            "Verglichen wird mit einer sehr einfachen Prognose, die immer den mittleren "
-            "typischen Wert der Trainingsdaten verwendet. Ein positiver Wert bedeutet, "
-            "dass das Modell einen entsprechend kleineren durchschnittlichen Fehler hat."
+            "Verringerung des MAE gegenüber einer Prognose mit dem "
+            "Trainingsmedian; höher ist besser."
         ),
     )
     model_basis_caption = (
