@@ -999,7 +999,7 @@ elif page == "Datenexploration":
 elif page == "Über die App":
     st.subheader("Modellgüte, Methodik und Daten")
     metrics = bundle.metrics
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3 = st.columns(3)
     m1.metric(
         "MAE Modell",
         f"{metrics['model_mae'] * 100:.2f}".replace(".", ",") + " %-Pkt.",
@@ -1024,15 +1024,6 @@ elif page == "Über die App":
             "erklärt wird; näher an 1 ist besser."
         ),
     )
-    improvement = 1 - metrics["model_mae"] / metrics["baseline_mae"]
-    m4.metric(
-        "Fehlerreduktion gegenüber Vergleich",
-        f"{improvement:+.1%}".replace(".", ","),
-        help=(
-            "Verringerung des MAE gegenüber einer Prognose mit dem "
-            "Trainingsmedian; höher ist besser."
-        ),
-    )
     model_basis_caption = (
         f"Zeitlicher Test ab {bundle.split_timestamp:%d.%m.%Y}; "
         "keine zufällige Mischung von Vergangenheit und Zukunft. Training und "
@@ -1043,16 +1034,6 @@ elif page == "Über die App":
     ).replace(",", ".")
     st.caption(model_basis_caption)
 
-    with st.expander("Reproduzierbarer technischer Ablauf"):
-        st.markdown(
-            """
-            1. SMARD-PV-Erzeugung, jährliche PV-Leistung und DWD-ZIPs in
-               `data/raw/` ablegen.
-            2. `python scripts/prepare_data.py` erzeugt das stündliche Panel.
-            3. `python scripts/create_notebook.py --execute` aktualisiert das Notebook.
-            4. `streamlit run app.py` startet diese App.
-            """
-        )
     st.markdown(
         '<div class="method-note"><b>Zielvariable:</b> PV-Erzeugung in MWh geteilt '
         "durch installierte PV-Leistung in MW und eine Stunde. Die installierte "
@@ -1063,6 +1044,25 @@ elif page == "Über die App":
         "Szenarioprognose nicht.</div>",
         unsafe_allow_html=True,
     )
+    st.warning(
+        """
+        **Grenzen des ungewichteten Stationsmittels**
+
+        Ein ungewichteter Mittelwert über alle Wetterstationen erzeugt zwar pro
+        Stunde einen deutschlandweiten Wetterwert, hat aber mehrere Probleme:
+
+        - Regionen mit vielen Messstationen erhalten automatisch mehr Gewicht.
+        - Die installierte PV-Leistung ist regional sehr unterschiedlich verteilt.
+        - Die Wetterbedingungen können sich zwischen Nord- und Süddeutschland
+          stark unterscheiden.
+        - Extremwerte und regionale Unterschiede werden durch den Mittelwert
+          „glattgebügelt“.
+        - Unterschiedlich viele fehlende Stationswerte können die Zusammensetzung
+          und damit den Mittelwert im Zeitverlauf verändern.
+        """,
+        icon="⚠️",
+    )
+
     st.markdown("### Datengrundlage und Realdaten")
     pill_color = "#8A4B08" if is_demo else "#176B4D"
     source_display = (
@@ -1094,10 +1094,33 @@ elif page == "Über die App":
             icon="✅",
         )
 
+    st.markdown("#### Download & Training")
+    st.markdown(
+        """
+        **Amtliche Quellen:** [SMARD – Marktdaten](https://www.smard.de/home/downloadcenter/download-marktdaten/)
+        · [DWD – Solarstrahlung](https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/solar/)
+        · [DWD – Temperatur](https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/air_temperature/historical/)
+        · [DWD – Bewölkung](https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/cloudiness/historical/)
+        · [DWD – Wind](https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/wind/historical/)
+        """
+    )
+
+    with st.expander("Manuelles Vorgehen"):
+        st.markdown(
+            """
+            1. Die Rohdaten über die oben verlinkten amtlichen Quellen beziehen:
+               PV-Erzeugung und installierte Leistung von SMARD, Wetterdaten vom
+               DWD. Anschließend die Dateien in `data/raw/` ablegen.
+            2. `python scripts/prepare_data.py` erzeugt das stündliche Panel.
+            3. `python scripts/create_notebook.py --execute` aktualisiert das Notebook.
+            4. `streamlit run app.py` startet die App und trainiert das Modell.
+            """
+        )
+
     latest_download_year = date.today().year - 1
     default_start_year = max(MIN_DOWNLOAD_YEAR, latest_download_year - 5)
     with st.expander(
-        "Realdaten herunterladen und Modell neu trainieren",
+        "Automatisches Vorgehen",
         expanded=is_demo,
     ):
         st.markdown(
@@ -1165,25 +1188,6 @@ elif page == "Über die App":
                 )
                 st.rerun()
 
-    st.warning(
-        """
-        **Grenzen des ungewichteten Stationsmittels**
-
-        Ein ungewichteter Mittelwert über alle Wetterstationen erzeugt zwar pro
-        Stunde einen deutschlandweiten Wetterwert, hat aber mehrere Probleme:
-
-        - Regionen mit vielen Messstationen erhalten automatisch mehr Gewicht.
-        - Die installierte PV-Leistung ist regional sehr unterschiedlich verteilt.
-        - Die Wetterbedingungen können sich zwischen Nord- und Süddeutschland
-          stark unterscheiden.
-        - Extremwerte und regionale Unterschiede werden durch den Mittelwert
-          „glattgebügelt“.
-        - Unterschiedlich viele fehlende Stationswerte können die Zusammensetzung
-          und damit den Mittelwert im Zeitverlauf verändern.
-        """,
-        icon="⚠️",
-    )
-
     st.markdown("##### Vorschau des verwendeten aufbereiteten Datensatzes")
     if is_demo:
         st.caption(
@@ -1206,15 +1210,6 @@ elif page == "Über die App":
         preview.to_csv(index=False).encode("utf-8"),
         "pv_weather_preview.csv",
         "text/csv",
-    )
-    st.markdown(
-        """
-        **Amtliche Quellen:** [SMARD – Marktdaten](https://www.smard.de/home/downloadcenter/download-marktdaten/)
-        · [DWD – Solarstrahlung](https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/solar/)
-        · [DWD – Temperatur](https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/air_temperature/historical/)
-        · [DWD – Bewölkung](https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/cloudiness/historical/)
-        · [DWD – Wind](https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/wind/historical/)
-        """
     )
 
 st.divider()

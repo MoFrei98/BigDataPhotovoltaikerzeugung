@@ -19,7 +19,7 @@ from .ingest import prepare_dataset
 from .modeling import YieldModelBundle, train_yield_model
 
 
-MIN_DOWNLOAD_YEAR = 2018
+MIN_DOWNLOAD_YEAR = 2015
 
 
 @dataclass(frozen=True)
