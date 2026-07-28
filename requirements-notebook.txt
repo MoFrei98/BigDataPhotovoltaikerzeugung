@@ -1,0 +1,10 @@
+-r requirements.txt
+
+# Lokale Analyse-, Notebook- und Testwerkzeuge; nicht für Streamlit Cloud nötig.
+ipykernel>=6.29,<7
+jupyterlab>=4.2,<5
+matplotlib>=3.8,<4
+nbclient>=0.10,<1
+nbformat>=5.10,<6
+pytest>=8,<9
+seaborn>=0.13,<0.14

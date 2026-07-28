@@ -99,6 +99,25 @@ python scripts/create_notebook.py --execute
 jupyter lab notebooks/pv_wetter_deutschland.ipynb
 ```
 
+Zusätzlich ist das Projekt in fünf separate Notebooks entlang des
+QUA³CK-Prozessmodells gegliedert:
+
+1. `notebooks/01_Q_Fragestellung.ipynb`
+2. `notebooks/02_U_Datenverstaendnis.ipynb`
+3. `notebooks/03_A3_Algorithmen_Features_Hyperparameter.ipynb`
+4. `notebooks/04_C_Schlussfolgern_und_Vergleichen.ipynb`
+5. `notebooks/05_K_Wissenstransfer.ipynb`
+
+Jedes Notebook erläutert die jeweilige Phase und ihre konkrete Umsetzung im
+PV-Projekt. Die Dateien können reproduzierbar neu erzeugt und optional
+ausgeführt werden:
+
+```powershell
+python -m pip install -r requirements-notebook.txt
+python scripts/create_quack_notebooks.py
+python scripts/create_quack_notebooks.py --execute
+```
+
 ## Methodik
 
 - einheitliche Stundenauflösung und UTC-Zeitstempel
