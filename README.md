@@ -4,6 +4,8 @@ Streamlit-App und Jupyter-Notebook untersuchen, unter welchen meteorologischen
 Bedingungen die auf die installierte Leistung normierte Photovoltaikerzeugung in
 Deutschland am höchsten ist.
 
+**Live-App:** [PV Weather Predictor Germany auf Streamlit](https://bigdataphotovoltaikerzeugung-eavpwvxvq67ts3b2ebjpnz.streamlit.app/)
+
 ## Forschungsfrage und These
 
 > Unter welchen meteorologischen Bedingungen ist die auf die installierte

@@ -879,6 +879,10 @@ Die Zielgruppe kann meteorologische Szenarien einstellen, eine normierte
 PV-Prognose samt empirischem 80-%-Intervall ansehen, den thermischen Effekt bei
 konstanter Einstrahlung untersuchen und das Szenario mit besonders
 ertragreichen beobachteten Stunden vergleichen.
+
+### Live-Anwendung
+
+[PV Weather Predictor Germany auf Streamlit öffnen](https://bigdataphotovoltaikerzeugung-eavpwvxvq67ts3b2ebjpnz.streamlit.app/)
 """
             ),
             code(SETUP_CELL),
